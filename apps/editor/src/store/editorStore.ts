@@ -156,6 +156,11 @@ interface EditorState {
   flushTransform: () => void;
 
   addAssetFromFile: (file: File, atlasId?: string) => Promise<Asset | null>;
+  /** Same as addAssetFromFile; returns whether an existing same-name sprite was updated. */
+  upsertAssetFromFile: (
+    file: File,
+    atlasId?: string
+  ) => Promise<{ asset: Asset; updated: boolean } | null>;
   removeAsset: (assetId: string) => void;
   updateAsset: (
     assetId: string,
@@ -549,19 +554,35 @@ export const useEditorStore = create<EditorState>((set, get) => {
     },
 
     addAssetFromFile: async (file, atlasId) => {
+      const result = await get().upsertAssetFromFile(file, atlasId);
+      return result?.asset ?? null;
+    },
+
+    upsertAssetFromFile: async (file, atlasId) => {
       const dataUrl = await readFileAsDataUrl(file);
       const img = await loadHtmlImage(dataUrl);
       const targetAtlas = atlasId ?? history.document.activeAtlasId;
-      const asset: Asset = {
+      const name = file.name.replace(/\.[^.]+$/, '').trim() || 'sprite';
+      const incoming: Asset = {
         id: createId('asset'),
-        name: file.name.replace(/\.[^.]+$/, ''),
+        name,
         atlasId: targetAtlas,
         width: img.naturalWidth,
         height: img.naturalHeight,
         dataUrl,
       };
-      history.update((doc) => commands.addAsset(doc, asset));
-      return asset;
+      let result: { asset: Asset; updated: boolean } = {
+        asset: incoming,
+        updated: false,
+      };
+      history.update((doc) => {
+        result = commands.upsertAssetByName(doc, incoming);
+      });
+      // Return fresh asset from history after update
+      const latest =
+        history.document.assets.find((a) => a.id === result.asset.id) ??
+        result.asset;
+      return { asset: structuredClone(latest), updated: result.updated };
     },
 
     removeAsset: (assetId) => {

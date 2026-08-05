@@ -26,6 +26,7 @@ import { ScrubLabel } from '../ui/NumberField';
 export function AssetDock() {
   const document = useEditorStore((s) => s.document);
   const addAssetFromFile = useEditorStore((s) => s.addAssetFromFile);
+  const upsertAssetFromFile = useEditorStore((s) => s.upsertAssetFromFile);
   const removeAsset = useEditorStore((s) => s.removeAsset);
   const addSprite = useEditorStore((s) => s.addSprite);
   const setActiveAtlas = useEditorStore((s) => s.setActiveAtlas);
@@ -109,7 +110,10 @@ export function AssetDock() {
       if (manifest.atlasName && activeAtlas) {
         renameAtlas(activeAtlas.id, manifest.atlasName);
       }
-      toast(`已导入 ${imported} 张切图到当前图集`, 'success');
+      toast(
+        `已导入 ${imported} 张切图到当前图集（同名已覆盖更新）`,
+        'success'
+      );
     } catch (err) {
       console.error(err);
       toast(
@@ -265,8 +269,22 @@ export function AssetDock() {
             className="hidden"
             onChange={async (e) => {
               const files = [...(e.target.files ?? [])];
-              for (const f of files) await addAssetFromFile(f);
+              let added = 0;
+              let updated = 0;
+              for (const f of files) {
+                const result = await upsertAssetFromFile(f);
+                if (!result) continue;
+                if (result.updated) updated += 1;
+                else added += 1;
+              }
               e.target.value = '';
+              if (added || updated) {
+                const parts = [
+                  added ? `新增 ${added}` : null,
+                  updated ? `更新 ${updated}` : null,
+                ].filter(Boolean);
+                toast(parts.join(' · '), 'success');
+              }
             }}
           />
         </label>

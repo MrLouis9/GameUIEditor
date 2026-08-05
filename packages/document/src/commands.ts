@@ -56,6 +56,42 @@ export function addAsset(doc: Document, asset: Asset): void {
   doc.assets.push(asset);
 }
 
+/**
+ * Find asset in an atlas by display name (trimmed, case-sensitive).
+ */
+export function findAssetByNameInAtlas(
+  doc: Document,
+  atlasId: string,
+  name: string
+): Asset | undefined {
+  const key = name.trim();
+  if (!key) return undefined;
+  return doc.assets.find((a) => a.atlasId === atlasId && a.name === key);
+}
+
+/**
+ * Add asset, or replace image/size of an existing same-name asset in the same atlas.
+ * Keeps id / nineSlice so canvas sprites stay linked.
+ */
+export function upsertAssetByName(
+  doc: Document,
+  asset: Asset
+): { asset: Asset; updated: boolean } {
+  const atlasId = asset.atlasId || doc.activeAtlasId;
+  const existing = findAssetByNameInAtlas(doc, atlasId, asset.name);
+  if (existing) {
+    updateAsset(doc, existing.id, {
+      dataUrl: asset.dataUrl,
+      width: asset.width,
+      height: asset.height,
+    });
+    return { asset: existing, updated: true };
+  }
+  const next = { ...asset, atlasId };
+  addAsset(doc, next);
+  return { asset: next, updated: false };
+}
+
 export function removeAsset(doc: Document, assetId: string): void {
   doc.assets = doc.assets.filter((a) => a.id !== assetId);
 }
