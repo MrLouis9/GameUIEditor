@@ -1,0 +1,13 @@
+{
+  "name": "game-ui-editer",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/editor"
+  ],
+  "scripts": {
+    "dev": "npm run dev --prefix apps/editor",
+    "build": "cd apps/editor && npm run build && cd ../.. && rm -rf dist && cp -r apps/editor/dist .",
+    "lint": "npm run lint --prefix apps/editor"
+  }
+}

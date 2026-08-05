@@ -1,0 +1,8 @@
+{
+  "name": "Game UI Editor",
+  "description": "A lightweight, Figma-like Web UI editor tailored for game UI design, featuring texture atlas packing, 9-slice scaling, layer management, and AI recognition export.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

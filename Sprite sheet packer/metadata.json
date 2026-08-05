@@ -1,0 +1,8 @@
+{
+  "name": "精灵图集编辑器",
+  "description": "An online sprite sheet packer and atlas generator. Upload multiple images, arrange them automatically with optimal packing, customize layouts, and export combined PNG and JSON atlas files.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "name": "game-ui-editer",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "npm run dev --prefix apps/editor",
+    "build": "npm run build --prefix apps/editor",
+    "lint": "npm run lint --prefix apps/editor"
+  }
+}
