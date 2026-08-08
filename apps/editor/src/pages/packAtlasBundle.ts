@@ -7,7 +7,7 @@ import {
   type PackSettings,
   type SpriteItem,
 } from '@game-ui/atlas';
-import type { Asset, Atlas } from '@game-ui/document';
+import { buildFrameNameByAssetId, type Asset, type Atlas } from '@game-ui/document';
 
 const PACK_SETTINGS_PREFIX = 'gameui-pack-settings:';
 
@@ -85,16 +85,13 @@ export async function packAtlasBundle(
     backgroundColor: 'transparent',
   };
 
-  const usedNames = new Map<string, number>();
-  const frameNameById = new Map<string, string>();
+  // Frame keys over the full atlas list so Prefab ↔ packer never drift
+  // when some rows temporarily lack dataUrl.
+  const frameNameById = buildFrameNameByAssetId(assetsInAtlas);
   const sprites: SpriteItem[] = [];
 
   for (const asset of withImage) {
-    let frameName = safeAtlasFileBase(asset.name, asset.id);
-    const n = (usedNames.get(frameName) ?? 0) + 1;
-    usedNames.set(frameName, n);
-    if (n > 1) frameName = `${frameName}_${n}`;
-    frameNameById.set(asset.id, frameName);
+    const frameName = frameNameById.get(asset.id) ?? safeAtlasFileBase(asset.name, asset.id);
 
     const img = await loadImage(asset.dataUrl);
     const nw = img.naturalWidth || img.width || asset.width;

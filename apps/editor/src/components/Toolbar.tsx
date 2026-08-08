@@ -83,8 +83,8 @@ export function Toolbar() {
 
   const onOpenProject = async (file: File) => {
     const ok = await confirmDialog({
-      title: '打开项目',
-      message: `将用「${file.name}」替换当前画布（含切图资源）。本地自动保存会被覆盖。确定打开？`,
+      title: '打开项目 / Prefab',
+      message: `打开「${file.name}」。完整项目会替换当前画布；若是界面 Prefab（kind=gameui.prefab）则合并进当前工程并替换当前页（图集像素需另导）。确定？`,
       confirmLabel: '打开',
       danger: true,
     });

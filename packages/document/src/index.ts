@@ -128,6 +128,24 @@ export {
   downloadJson,
 } from './serialize';
 
+export {
+  PREFAB_KIND,
+  buildFrameNameByAssetId,
+  isPrefabFile,
+  buildPrefabFromDocument,
+  serializePrefabJson,
+  parsePrefabJson,
+  applyPrefabToDocument,
+  resolvePrefabAsset,
+} from './prefab';
+export type {
+  PrefabFile,
+  PrefabAtlasRef,
+  PrefabAssetRef,
+  ApplyPrefabMode,
+  ApplyPrefabResult,
+} from './prefab';
+
 export { DocumentHistory } from './history';
 
 export * as commands from './commands';

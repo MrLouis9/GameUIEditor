@@ -2,9 +2,42 @@
 
 `schemaVersion: 7`
 
-## Handoff package (recommended)
+## Screen Prefab (recommended for other projects)
 
-仅导出**当前活动页 Root**。图集按**原图集分别打包**（用到几份导出几份，文件名与图集名一致）；未使用的图集不导出。
+单界面「Prefab」：布局 + 语义 + 图集引用，**不含**切图像素。图集用编辑器底部「保存图集」另行导出，文件名与 Prefab 内 `atlases[].file/meta` 一致。
+
+```
+{root}.prefab.gameui.json   # kind: "gameui.prefab"
+{atlasName}.png             # 另存
+{atlasName}.json
+```
+
+| 字段 | 含义 |
+|------|------|
+| `kind` | 固定 `"gameui.prefab"`（与完整项目 `.gameui.json` 区分） |
+| `page` | 当前 Root 节点树（权威布局） |
+| `assets[]` | `id` / `name` / `atlasId` / `frame` / `nineSlice`（无 `dataUrl`） |
+| `atlases[]` | `file` = `{name}.png`，`meta` = `{name}.json` |
+| `resolve` | 运行时查图规则（勿自创） |
+
+**运行时查图（避免误差）：**
+
+1. 节点 `type: "sprite"` → `assetId`（或 `stateAssets[activeState]`）
+2. 在 `assets[]` 找到该 id → 取 `frame`、`atlasId`
+3. 打开对应 `atlases[].meta` → `frames[frame]` 取 UV；贴图为 `atlases[].file`
+
+**稳定约定：**
+
+- 不要改 `asset.id` / 节点上的 `assetId` / `assets[].frame` 对应关系
+- `frame` 与「保存图集」打出的 JSON 帧名算法一致（同名资源在同一图集内会加 `_2` 后缀）
+- 改布局可直接改 Prefab JSON，再在编辑器「导入 Prefab」往返继续改
+- 设计尺寸以 Prefab 的 `designSize` + `page.root.transform` 为准
+
+编辑器：交接弹窗 →「导出界面 Prefab」/「导入 Prefab」；工具栏「打开」也能识别 Prefab。
+
+## Handoff package (AI zip)
+
+仅导出**当前活动页 Root**。图集按**原图集分别打包**（用到几份导出几份，文件名与图集名一致）；未使用的图集不导出。适合一次性交给实现方（含图集）。
 
 ```
 {name}-{root}-ai-handoff/

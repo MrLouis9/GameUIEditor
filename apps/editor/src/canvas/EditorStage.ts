@@ -102,6 +102,12 @@ export class EditorStage {
   private disposed = false;
   private activeDoc: Document | null = null;
   private interactive: boolean;
+  /** Guard overlapping async syncDocument calls (asset updates). */
+  private syncGeneration = 0;
+  private hostEl: HTMLElement | null = null;
+  private panPointerId: number | null = null;
+  /** Destroy after scene rebuild so live sprites never hold a freed GPU texture. */
+  private pendingTextureDestroy: Texture[] = [];
 
   constructor(callbacks: CanvasCallbacks, options?: EditorStageOptions) {
     this.callbacks = callbacks;
@@ -129,6 +135,7 @@ export class EditorStage {
       return;
     }
     this.app = app;
+    this.hostEl = host;
     host.appendChild(app.canvas);
     app.stage.addChild(this.world);
     app.stage.eventMode = this.interactive ? 'static' : 'none';
@@ -137,6 +144,18 @@ export class EditorStage {
     if (this.interactive) {
       app.canvas.addEventListener('dragover', this.onCanvasDragOver);
       app.canvas.addEventListener('drop', this.onCanvasDrop);
+      // Middle-pan: native capture + preventDefault blocks Chrome autoscroll
+      app.canvas.style.touchAction = 'none';
+      const panOpts: AddEventListenerOptions = { capture: true };
+      app.canvas.addEventListener('mousedown', this.onNativeMouseDown, panOpts);
+      app.canvas.addEventListener('auxclick', this.onNativeAuxClick, panOpts);
+      app.canvas.addEventListener('pointerdown', this.onNativePointerDown, panOpts);
+      // Also on host — covers letterboxing / hit-area edge cases
+      host.addEventListener('mousedown', this.onNativeMouseDown, panOpts);
+      host.addEventListener('pointerdown', this.onNativePointerDown, panOpts);
+      window.addEventListener('pointermove', this.onNativePointerMove);
+      window.addEventListener('pointerup', this.onNativePointerUp);
+      window.addEventListener('pointercancel', this.onNativePointerUp);
       app.stage.on('pointerdown', this.onPointerDown);
       app.stage.on('pointermove', this.onPointerMove);
       app.stage.on('pointerup', this.onPointerUp);
@@ -150,15 +169,33 @@ export class EditorStage {
   destroy(): void {
     this.disposed = true;
     const canvas = this.app?.canvas;
+    const host = this.hostEl ?? canvas?.parentElement;
     if (this.interactive && canvas) {
       canvas.removeEventListener('dragover', this.onCanvasDragOver);
       canvas.removeEventListener('drop', this.onCanvasDrop);
+      canvas.removeEventListener('mousedown', this.onNativeMouseDown, true);
+      canvas.removeEventListener('auxclick', this.onNativeAuxClick, true);
+      canvas.removeEventListener('pointerdown', this.onNativePointerDown, true);
+      window.removeEventListener('pointermove', this.onNativePointerMove);
+      window.removeEventListener('pointerup', this.onNativePointerUp);
+      window.removeEventListener('pointercancel', this.onNativePointerUp);
     }
-    const host = canvas?.parentElement;
-    if (this.interactive && host) host.removeEventListener('wheel', this.onWheel);
+    if (this.interactive && host) {
+      host.removeEventListener('mousedown', this.onNativeMouseDown, true);
+      host.removeEventListener('pointerdown', this.onNativePointerDown, true);
+      host.removeEventListener('wheel', this.onWheel);
+    }
+    this.hostEl = null;
     this.app?.destroy(true);
     this.app = null;
     this.nodeMap.clear();
+    for (const tex of this.textureCache.values()) {
+      try {
+        tex.destroy(true);
+      } catch {
+        /* ignore */
+      }
+    }
     this.textureCache.clear();
     this.textureSource.clear();
   }
@@ -240,7 +277,78 @@ export class EditorStage {
     this.callbacks.onAssetDrop(assetId, pos);
   };
 
+  private onNativeMouseDown = (e: MouseEvent): void => {
+    // Middle button: stop browser autoscroll (otherwise pan "fails" often)
+    if (e.button === 1) {
+      e.preventDefault();
+    }
+  };
+
+  private onNativeAuxClick = (e: MouseEvent): void => {
+    if (e.button === 1) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  };
+
+  private onNativePointerDown = (e: PointerEvent): void => {
+    if (e.button !== 1) return;
+    e.preventDefault();
+    e.stopPropagation();
+    // Already panning with this pointer
+    if (this.panPointerId === e.pointerId) return;
+    this.panPointerId = e.pointerId;
+    this.drag = {
+      mode: 'pan',
+      startX: e.clientX,
+      startY: e.clientY,
+      originX: 0,
+      originY: 0,
+      originW: 0,
+      originH: 0,
+      cameraX: this.camera.x,
+      cameraY: this.camera.y,
+    };
+    const captureEl = this.app?.canvas ?? this.hostEl;
+    try {
+      captureEl?.setPointerCapture(e.pointerId);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  private onNativePointerMove = (e: PointerEvent): void => {
+    if (!this.drag || this.drag.mode !== 'pan') return;
+    if (this.panPointerId != null && e.pointerId !== this.panPointerId) return;
+    // Native middle-pan uses client coords (not Pixi global)
+    if (this.panPointerId != null) {
+      const dx = e.clientX - this.drag.startX;
+      const dy = e.clientY - this.drag.startY;
+      this.camera.x = this.drag.cameraX + dx;
+      this.camera.y = this.drag.cameraY + dy;
+      this.applyCamera();
+      this.callbacks.onCameraChange?.({ ...this.camera });
+      if (this.activeDoc) this.drawSelection(this.activeDoc);
+    }
+  };
+
+  private onNativePointerUp = (e: PointerEvent): void => {
+    if (this.panPointerId == null) return;
+    if (e.pointerId !== this.panPointerId && e.type !== 'pointercancel') return;
+    const captureEl = this.app?.canvas ?? this.hostEl;
+    try {
+      captureEl?.releasePointerCapture(this.panPointerId);
+    } catch {
+      /* ignore */
+    }
+    this.panPointerId = null;
+    if (this.drag?.mode === 'pan') {
+      this.drag = null;
+    }
+  };
+
   async syncDocument(doc: Document): Promise<void> {
+    const gen = ++this.syncGeneration;
     this.activeDoc = doc;
     const page = getActivePage(doc);
     if (!page) return;
@@ -251,9 +359,17 @@ export class EditorStage {
     this.artboardBg.fill({ color: 0x1a1d27 });
     this.artboardBg.stroke({ width: 1, color: 0x3b4254 });
 
-    for (const asset of doc.assets) {
-      await this.ensureTexture(asset);
-    }
+    // Load textures first (tolerate individual failures)
+    await Promise.all(
+      doc.assets.map(async (asset) => {
+        try {
+          await this.ensureTexture(asset);
+        } catch (err) {
+          console.warn('[EditorStage] texture load failed', asset.name, err);
+        }
+      })
+    );
+    if (gen !== this.syncGeneration || this.disposed) return;
 
     const keep = new Set<string>();
     this.syncNodeTree(page.root, this.content, doc.assets, keep, true);
@@ -267,6 +383,17 @@ export class EditorStage {
       }
     }
 
+    // Drop textures for assets no longer in the document
+    const assetIds = new Set(doc.assets.map((a) => a.id));
+    for (const [id, tex] of [...this.textureCache]) {
+      if (!assetIds.has(id)) {
+        this.textureCache.delete(id);
+        this.textureSource.delete(id);
+        this.pendingTextureDestroy.push(tex);
+      }
+    }
+    this.flushPendingTextureDestroy();
+
     if (this.interactive) this.drawSelection(doc);
     else {
       this.selectionGfx.clear();
@@ -274,26 +401,46 @@ export class EditorStage {
     }
   }
 
-  private async ensureTexture(asset: Asset): Promise<Texture> {
-    const prev = this.textureSource.get(asset.id);
-    const cached = this.textureCache.get(asset.id);
-    if (cached && prev === asset.dataUrl && cached.width > 0) {
-      return cached;
-    }
-    if (cached) {
+  private flushPendingTextureDestroy(): void {
+    const list = this.pendingTextureDestroy;
+    this.pendingTextureDestroy = [];
+    for (const tex of list) {
       try {
-        cached.destroy(true);
+        tex.destroy(true);
       } catch {
         /* ignore */
       }
-      this.textureCache.delete(asset.id);
+    }
+  }
+
+  private async ensureTexture(asset: Asset): Promise<Texture> {
+    const prev = this.textureSource.get(asset.id);
+    const cached = this.textureCache.get(asset.id);
+    const cachedOk =
+      !!cached &&
+      !cached.destroyed &&
+      prev === asset.dataUrl &&
+      !!asset.dataUrl &&
+      (cached.width > 0 || (cached.source?.width ?? 0) > 0);
+    if (cachedOk && cached) {
+      return cached;
+    }
+
+    if (!asset.dataUrl) {
+      if (cached) {
+        this.textureCache.delete(asset.id);
+        this.pendingTextureDestroy.push(cached);
+      }
+      this.textureSource.delete(asset.id);
+      throw new Error(`Asset has empty dataUrl: ${asset.name}`);
     }
 
     const img = new Image();
     img.crossOrigin = 'anonymous';
     await new Promise<void>((resolve, reject) => {
       img.onload = () => resolve();
-      img.onerror = () => reject(new Error(`Failed to load asset image: ${asset.name}`));
+      img.onerror = () =>
+        reject(new Error(`Failed to load asset image: ${asset.name}`));
       img.src = asset.dataUrl;
     });
     try {
@@ -303,8 +450,13 @@ export class EditorStage {
     }
 
     const texture = Texture.from(img);
+    // Swap cache; destroy old only after scene rebuild (see syncDocument)
+    const old = this.textureCache.get(asset.id);
     this.textureCache.set(asset.id, texture);
     this.textureSource.set(asset.id, asset.dataUrl);
+    if (old && old !== texture) {
+      this.pendingTextureDestroy.push(old);
+    }
     return texture;
   }
 
@@ -352,7 +504,14 @@ export class EditorStage {
     const visuals = display.children.filter(
       (c) => !(c as Container & { nodeId?: string }).nodeId
     );
-    for (const v of visuals) v.destroy();
+    for (const v of visuals) {
+      try {
+        // Never free shared atlas textures — they live in textureCache
+        v.destroy({ children: true, texture: false, textureSource: false });
+      } catch {
+        /* destroyed texture refs */
+      }
+    }
 
     // Background fill + stroke (frames / groups / rects)
     if (node.type === 'rect' || ((node.type === 'frame' || node.type === 'group') && (node.fill || node.strokeWidth))) {
@@ -392,7 +551,9 @@ export class EditorStage {
       const resolvedId = resolveSpriteAssetId(node);
       const asset = assets.find((a) => a.id === resolvedId);
       const texture = asset ? this.textureCache.get(asset.id) : undefined;
-      if (texture && texture.width > 0) {
+      const texW = texture ? texture.width || texture.source?.width || 0 : 0;
+      const texH = texture ? texture.height || texture.source?.height || 0 : 0;
+      if (texture && texW > 0 && texH > 0) {
         const slice = node.nineSlice ?? asset?.nineSlice;
         if (slice && (slice.top || slice.right || slice.bottom || slice.left)) {
           const nine = new NineSliceSprite({
@@ -567,13 +728,15 @@ export class EditorStage {
 
   private onPointerDown = (e: FederatedPointerEvent): void => {
     if (this.drag?.mode === 'resize') return;
+    // Middle pan is handled by native listeners (more reliable vs browser autoscroll)
+    if (e.button === 1 || this.panPointerId != null) return;
 
     // Resize handles stop propagation; anything else uses document-space picking.
     const handleId = (e.target as Graphics & { handleId?: HandleId } | null)?.handleId;
     if (handleId) return;
 
     const tool = this.callbacks.getTool();
-    if (tool === 'hand' || e.button === 1) {
+    if (tool === 'hand') {
       this.drag = {
         mode: 'pan',
         startX: e.globalX,
@@ -660,6 +823,8 @@ export class EditorStage {
 
   private onPointerMove = (e: FederatedPointerEvent): void => {
     if (!this.drag) return;
+    // Native middle-pan owns pointermove while panPointerId is set
+    if (this.drag.mode === 'pan' && this.panPointerId != null) return;
     if (this.drag.mode === 'pan') {
       const dx = e.globalX - this.drag.startX;
       const dy = e.globalY - this.drag.startY;
@@ -710,6 +875,8 @@ export class EditorStage {
   };
 
   private onPointerUp = (): void => {
+    // Native middle-pan owns its own pointerup; Pixi must not clear it mid-drag
+    if (this.panPointerId != null) return;
     if (this.drag?.mode === 'move' || this.drag?.mode === 'resize') {
       this.callbacks.onTransformEnd();
     }

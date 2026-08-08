@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { Copy, Download, Eye, FileJson, Package } from 'lucide-react';
+import { useMemo, useRef, useState } from 'react';
+import { Copy, Download, Eye, FileJson, Package, Upload } from 'lucide-react';
 import {
   lintNaming,
   getActivePage,
@@ -25,9 +25,18 @@ export function AiHandoffModal({ onClose }: Props) {
   const doc = useEditorStore((s) => s.document);
   const select = useEditorStore((s) => s.select);
   const updateNodeSemantics = useEditorStore((s) => s.updateNodeSemantics);
+  const exportActivePrefab = useEditorStore((s) => s.exportActivePrefab);
+  const importPrefabFile = useEditorStore((s) => s.importPrefabFile);
+  const prefabInputRef = useRef<HTMLInputElement>(null);
+  const prefabImportMode = useRef<'replace-active' | 'add-page'>('replace-active');
 
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
+
+  const openPrefabPicker = (mode: 'replace-active' | 'add-page') => {
+    prefabImportMode.current = mode;
+    prefabInputRef.current?.click();
+  };
 
   const page = useMemo(() => getActivePage(doc), [doc]);
   const usedAssetIds = useMemo(() => {
@@ -117,9 +126,86 @@ export function AiHandoffModal({ onClose }: Props) {
       }
     >
       <div className="space-y-4 text-sm text-slate-300">
+        <section className="space-y-2 rounded-lg border border-emerald-900/50 bg-emerald-950/20 px-3 py-3">
+          <div className="text-[13px] font-medium text-emerald-200/95">
+            界面 Prefab（给其它项目 / 可再编辑）
+          </div>
+          <p className="text-[12px] leading-relaxed text-slate-400">
+            导出当前 Root 的完整布局与引用（
+            <code className="text-slate-300">.prefab.gameui.json</code>
+            ），不含切图像素。图集请在底部资源栏「保存图集」另行导出。其它项目按
+            <code className="text-slate-300">assetId → frame → 图集 JSON</code>
+            解析，勿改 id / frame 对应关系。改完 Prefab 后可再导入本编辑器继续改。
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                try {
+                  exportActivePrefab();
+                  toast(
+                    `已导出 Prefab：${page?.root.name ?? '界面'}（请另存对应图集）`,
+                    'success'
+                  );
+                } catch (err) {
+                  toast(
+                    err instanceof Error ? err.message : '导出失败',
+                    'error'
+                  );
+                }
+              }}
+              className="inline-flex items-center gap-1.5 rounded bg-emerald-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-600"
+            >
+              <FileJson size={12} />
+              导出界面 Prefab
+            </button>
+            <button
+              type="button"
+              onClick={() => openPrefabPicker('replace-active')}
+              className="inline-flex items-center gap-1.5 rounded border border-emerald-800 px-3 py-1.5 text-xs text-emerald-100/90 hover:bg-emerald-950/50"
+            >
+              <Upload size={12} />
+              导入 Prefab（替换当前页）
+            </button>
+            <button
+              type="button"
+              onClick={() => openPrefabPicker('add-page')}
+              className="inline-flex items-center gap-1.5 rounded border border-slate-700 px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-800"
+            >
+              导入为新页面
+            </button>
+            <input
+              ref={prefabInputRef}
+              type="file"
+              accept=".json,application/json"
+              className="hidden"
+              onChange={async (e) => {
+                const f = e.target.files?.[0];
+                e.target.value = '';
+                if (!f) return;
+                const mode = prefabImportMode.current;
+                try {
+                  await importPrefabFile(f, mode);
+                  toast(
+                    mode === 'add-page'
+                      ? `已作为新页面导入：${f.name}`
+                      : `已替换当前界面：${f.name}。若出现粉块，请再「打开图集」导入对应图集`,
+                    'success'
+                  );
+                } catch (err) {
+                  toast(
+                    err instanceof Error ? err.message : '导入失败',
+                    'error'
+                  );
+                }
+              }}
+            />
+          </div>
+        </section>
+
         <p className="leading-relaxed text-slate-400">
-          只导出当前界面 Root：界面 JSON、预览 HTML、说明 MD，以及本界面用到的原图集（各一份
-          png+json，名字与编辑器中一致）。不会合成新图集，未使用的图集不导出。
+          AI 交接包：当前 Root + 预览 HTML + 说明，以及本界面用到的原图集（各一份
+          png+json）。图集已内含时可直接给实现方；日常给程序用 Prefab + 单独图集更干净。
         </p>
 
         <div className="grid grid-cols-2 gap-2 text-[11px] sm:grid-cols-4">

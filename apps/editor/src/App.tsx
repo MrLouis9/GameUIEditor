@@ -29,7 +29,7 @@ export default function App() {
             <main className="relative min-w-0 flex-1">
               <PixiCanvas />
               <div className="pointer-events-none absolute bottom-3 left-3 rounded bg-black/50 px-2 py-1 text-[11px] text-slate-400">
-                图层 Ctrl 多选 / Shift 范围 · 拖拽排序嵌套 · Esc 取消选中 · Space 平移
+                图层 Ctrl 多选 / Shift 范围 · 拖拽排序嵌套 · Esc 取消选中 · Space / 中键 平移
               </div>
             </main>
           </div>

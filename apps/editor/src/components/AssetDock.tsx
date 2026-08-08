@@ -62,6 +62,7 @@ export function AssetDock() {
         atlasName?: string;
         assets?: Array<{
           file: string;
+          id?: string;
           name: string;
           nineSlice?: NineSlice;
         }>;
@@ -73,6 +74,7 @@ export function AssetDock() {
       }
 
       let imported = 0;
+      let updated = 0;
       for (const entry of list) {
         const rel = (entry.file || '').replace(/^\.\//, '');
         const baseName = rel.split('/').pop() || '';
@@ -95,23 +97,31 @@ export function AssetDock() {
               : ext === 'gif'
                 ? 'image/gif'
                 : 'image/png';
+        const spriteName = entry.name || baseName.replace(/\.[^.]+$/, '') || 'sprite';
         const named = new File(
           [blob],
-          `${entry.name || 'sprite'}.${ext === 'jpeg' ? 'jpg' : ext}`,
+          `${spriteName}.${ext === 'jpeg' ? 'jpg' : ext}`,
           { type: mime }
         );
-        const asset = await addAssetFromFile(named);
-        if (asset && entry.nineSlice) {
-          useEditorStore.getState().setAssetNineSlice(asset.id, entry.nineSlice);
+        // Pass manifest id so UI sprites keep their links after re-import
+        const result = await upsertAssetFromFile(named, undefined, {
+          assetId: entry.id,
+          name: spriteName,
+          nineSlice: entry.nineSlice,
+        });
+        if (result) {
+          imported += 1;
+          if (result.updated) updated += 1;
         }
-        imported += 1;
       }
 
       if (manifest.atlasName && activeAtlas) {
         renameAtlas(activeAtlas.id, manifest.atlasName);
       }
       toast(
-        `已导入 ${imported} 张切图到当前图集（同名已覆盖更新）`,
+        updated > 0
+          ? `已导入 ${imported} 张（更新 ${updated}，同名/同 ID 已覆盖）`
+          : `已导入 ${imported} 张切图到当前图集`,
         'success'
       );
     } catch (err) {

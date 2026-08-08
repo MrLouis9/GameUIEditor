@@ -1,6 +1,7 @@
 import type { Document, DocumentFile } from './types';
 import { SCHEMA_VERSION } from './types';
 import { migrateDocument } from './atlases';
+import { mergeDuplicateNamedAssets } from './commands';
 
 export function serializeDocument(doc: Document): DocumentFile {
   return {
@@ -18,7 +19,10 @@ export function parseDocumentJson(json: string): Document {
   if (!file.document) {
     throw new Error('Invalid document file: missing document');
   }
-  return migrateDocument(file.document);
+  const doc = migrateDocument(file.document);
+  // Heal legacy same-name duplicates that left canvas sprites on orphan ids
+  mergeDuplicateNamedAssets(doc);
+  return doc;
 }
 
 export function downloadJson(filename: string, json: string): void {

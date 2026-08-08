@@ -26,6 +26,7 @@ import {
   findNodeInDocument,
   flattenNodes,
   getActivePage,
+  walkNodes,
 } from './tree';
 import {
   getNodeBoundsInParent,
@@ -69,31 +70,206 @@ export function findAssetByNameInAtlas(
   return doc.assets.find((a) => a.atlasId === atlasId && a.name === key);
 }
 
+/** Remap sprite assetId / stateAssets from one asset id to another across all pages. */
+export function remapAssetReferences(
+  doc: Document,
+  fromId: string,
+  toId: string
+): void {
+  if (fromId === toId) return;
+  for (const page of doc.pages) {
+    walkNodes(page.root, (node) => {
+      if (node.type !== 'sprite') return;
+      if (node.assetId === fromId) node.assetId = toId;
+      if (node.stateAssets) {
+        for (const [k, v] of Object.entries(node.stateAssets)) {
+          if (v === fromId) {
+            node.stateAssets![k as keyof typeof node.stateAssets] = toId;
+          }
+        }
+      }
+    });
+  }
+}
+
+function countAssetRefs(doc: Document, assetId: string): number {
+  let n = 0;
+  for (const page of doc.pages) {
+    walkNodes(page.root, (node) => {
+      if (node.type !== 'sprite') return;
+      if (node.assetId === assetId) n += 1;
+      if (node.stateAssets) {
+        for (const v of Object.values(node.stateAssets)) {
+          if (v === assetId) n += 1;
+        }
+      }
+    });
+  }
+  return n;
+}
+
 /**
  * Add asset, or replace image/size of an existing same-name asset in the same atlas.
  * Keeps id / nineSlice so canvas sprites stay linked.
+ * Also merges legacy duplicate same-name assets onto the most-referenced id.
+ *
+ * When `asset.id` already exists, updates that row in place (atlas ZIP re-import).
  */
 export function upsertAssetByName(
   doc: Document,
   asset: Asset
 ): { asset: Asset; updated: boolean } {
   const atlasId = asset.atlasId || doc.activeAtlasId;
-  const existing = findAssetByNameInAtlas(doc, atlasId, asset.name);
-  if (existing) {
-    updateAsset(doc, existing.id, {
+  const key = asset.name.trim();
+
+  const byId = doc.assets.find((a) => a.id === asset.id);
+  if (byId) {
+    updateAsset(doc, byId.id, {
+      name: key || byId.name,
+      dataUrl: asset.dataUrl,
+      width: asset.width,
+      height: asset.height,
+      atlasId,
+      ...(asset.nineSlice ? { nineSlice: asset.nineSlice } : {}),
+    });
+    // Collapse any same-name siblings onto this id
+    const sameName = doc.assets.filter(
+      (a) => a.atlasId === atlasId && a.name === (key || byId.name) && a.id !== byId.id
+    );
+    for (const dup of sameName) {
+      remapAssetReferences(doc, dup.id, byId.id);
+      removeAsset(doc, dup.id);
+    }
+    return {
+      asset: doc.assets.find((a) => a.id === byId.id) ?? byId,
+      updated: true,
+    };
+  }
+
+  // Scene still references this id but the asset row was lost — recreate it
+  if (asset.id && countAssetRefs(doc, asset.id) > 0) {
+    const restored: Asset = {
+      ...asset,
+      atlasId,
+      name: key || asset.name,
+    };
+    addAsset(doc, restored);
+    const sameName = doc.assets.filter(
+      (a) => a.atlasId === atlasId && a.name === restored.name && a.id !== restored.id
+    );
+    for (const dup of sameName) {
+      if (dup.dataUrl && !restored.dataUrl) {
+        restored.dataUrl = dup.dataUrl;
+        restored.width = dup.width;
+        restored.height = dup.height;
+      }
+      if (dup.nineSlice && !restored.nineSlice) {
+        restored.nineSlice = dup.nineSlice;
+      }
+      remapAssetReferences(doc, dup.id, restored.id);
+      removeAsset(doc, dup.id);
+    }
+    return { asset: restored, updated: true };
+  }
+
+  const sameName = doc.assets.filter(
+    (a) => a.atlasId === atlasId && a.name === key
+  );
+
+  if (sameName.length >= 1) {
+    // Prefer the id most referenced by the scene (keeps designed UI linked)
+    let keep = sameName[0]!;
+    let bestRefs = countAssetRefs(doc, keep.id);
+    for (let i = 1; i < sameName.length; i++) {
+      const candidate = sameName[i]!;
+      const refs = countAssetRefs(doc, candidate.id);
+      if (refs > bestRefs) {
+        keep = candidate;
+        bestRefs = refs;
+      }
+    }
+
+    updateAsset(doc, keep.id, {
       dataUrl: asset.dataUrl,
       width: asset.width,
       height: asset.height,
     });
-    return { asset: existing, updated: true };
+
+    for (const dup of sameName) {
+      if (dup.id === keep.id) continue;
+      remapAssetReferences(doc, dup.id, keep.id);
+      removeAsset(doc, dup.id);
+    }
+
+    return {
+      asset: doc.assets.find((a) => a.id === keep.id) ?? keep,
+      updated: true,
+    };
   }
-  const next = { ...asset, atlasId };
+
+  // Recreate with the provided id when possible (restores orphan UI refs from ZIP)
+  const next = { ...asset, atlasId, name: key || asset.name };
   addAsset(doc, next);
   return { asset: next, updated: false };
 }
 
 export function removeAsset(doc: Document, assetId: string): void {
   doc.assets = doc.assets.filter((a) => a.id !== assetId);
+}
+
+/**
+ * Merge same-name assets within each atlas onto the most-referenced id.
+ * Fixes legacy duplicates that leave canvas sprites pointing at orphan ids.
+ */
+export function mergeDuplicateNamedAssets(doc: Document): number {
+  let merged = 0;
+  const byAtlas = new Map<string, Map<string, Asset[]>>();
+  for (const asset of doc.assets) {
+    let names = byAtlas.get(asset.atlasId);
+    if (!names) {
+      names = new Map();
+      byAtlas.set(asset.atlasId, names);
+    }
+    const key = asset.name.trim();
+    const list = names.get(key) ?? [];
+    list.push(asset);
+    names.set(key, list);
+  }
+
+  for (const names of byAtlas.values()) {
+    for (const [, list] of names) {
+      if (list.length < 2) continue;
+      let keep = list[0]!;
+      let bestRefs = countAssetRefs(doc, keep.id);
+      for (let i = 1; i < list.length; i++) {
+        const candidate = list[i]!;
+        const refs = countAssetRefs(doc, candidate.id);
+        if (refs > bestRefs) {
+          keep = candidate;
+          bestRefs = refs;
+        }
+      }
+      if (!keep.dataUrl) {
+        const withData = list.find((a) => !!a.dataUrl);
+        if (withData) keep = withData;
+      }
+      for (const dup of list) {
+        if (dup.id === keep.id) continue;
+        if (dup.dataUrl && !keep.dataUrl) {
+          keep.dataUrl = dup.dataUrl;
+          keep.width = dup.width;
+          keep.height = dup.height;
+        }
+        if (dup.nineSlice && !keep.nineSlice) {
+          keep.nineSlice = dup.nineSlice;
+        }
+        remapAssetReferences(doc, dup.id, keep.id);
+        removeAsset(doc, dup.id);
+        merged += 1;
+      }
+    }
+  }
+  return merged;
 }
 
 export function updateAsset(

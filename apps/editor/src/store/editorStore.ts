@@ -17,6 +17,12 @@ import {
   migrateDocument,
   parseDocumentJson,
   serializeDocumentJson,
+  isPrefabFile,
+  parsePrefabJson,
+  buildPrefabFromDocument,
+  serializePrefabJson,
+  applyPrefabToDocument,
+  type ApplyPrefabMode,
   SceneNode,
 } from '@game-ui/document';
 
@@ -159,7 +165,8 @@ interface EditorState {
   /** Same as addAssetFromFile; returns whether an existing same-name sprite was updated. */
   upsertAssetFromFile: (
     file: File,
-    atlasId?: string
+    atlasId?: string,
+    options?: { assetId?: string; name?: string; nineSlice?: NineSlice }
   ) => Promise<{ asset: Asset; updated: boolean } | null>;
   removeAsset: (assetId: string) => void;
   updateAsset: (
@@ -230,7 +237,11 @@ interface EditorState {
   setDesignPreset: (presetId: string) => void;
   alignSelection: (mode: AlignMode) => void;
   exportJson: () => void;
+  /** Active page only — layout + atlas refs, no pixels (gameui.prefab). */
+  exportActivePrefab: () => void;
   importJsonFile: (file: File) => Promise<void>;
+  /** Merge / replace current screen from a gameui.prefab file. */
+  importPrefabFile: (file: File, mode?: ApplyPrefabMode) => Promise<void>;
   newDocument: () => void;
   setRightPanel: (panel: 'assets' | 'atlas') => void;
 }
@@ -558,18 +569,22 @@ export const useEditorStore = create<EditorState>((set, get) => {
       return result?.asset ?? null;
     },
 
-    upsertAssetFromFile: async (file, atlasId) => {
+    upsertAssetFromFile: async (file, atlasId, options) => {
       const dataUrl = await readFileAsDataUrl(file);
       const img = await loadHtmlImage(dataUrl);
       const targetAtlas = atlasId ?? history.document.activeAtlasId;
-      const name = file.name.replace(/\.[^.]+$/, '').trim() || 'sprite';
+      const name =
+        options?.name?.trim() ||
+        file.name.replace(/\.[^.]+$/, '').trim() ||
+        'sprite';
       const incoming: Asset = {
-        id: createId('asset'),
+        id: options?.assetId || createId('asset'),
         name,
         atlasId: targetAtlas,
         width: img.naturalWidth,
         height: img.naturalHeight,
         dataUrl,
+        nineSlice: options?.nineSlice,
       };
       let result: { asset: Asset; updated: boolean } = {
         asset: incoming,
@@ -678,10 +693,37 @@ export const useEditorStore = create<EditorState>((set, get) => {
       downloadJson(`${safeName}.gameui.json`, serializeDocumentJson(doc));
     },
 
+    exportActivePrefab: () => {
+      const prefab = buildPrefabFromDocument(history.document);
+      const safe =
+        (prefab.name || 'screen')
+          .replace(/[\\/:*?"<>|]+/g, '_')
+          .trim() || 'screen';
+      downloadJson(`${safe}.prefab.gameui.json`, serializePrefabJson(prefab));
+    },
+
     importJsonFile: async (file) => {
       const text = await file.text();
+      const raw = JSON.parse(text) as unknown;
+      if (isPrefabFile(raw)) {
+        const prefab = parsePrefabJson(text);
+        history.update((doc) => {
+          applyPrefabToDocument(doc, prefab, 'replace-active');
+        });
+        set({ selectedIds: [] });
+        return;
+      }
       const doc = parseDocumentJson(text);
       history.reset(doc);
+      set({ selectedIds: [] });
+    },
+
+    importPrefabFile: async (file, mode = 'replace-active') => {
+      const text = await file.text();
+      const prefab = parsePrefabJson(text);
+      history.update((doc) => {
+        applyPrefabToDocument(doc, prefab, mode);
+      });
       set({ selectedIds: [] });
     },
 
