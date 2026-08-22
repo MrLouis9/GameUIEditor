@@ -1,0 +1,622 @@
+{
+  "schemaVersion": 7,
+  "kind": "gameui.prefab",
+  "exportedAt": "2026-08-08T17:09:59.874Z",
+  "name": "登录界面",
+  "designSize": {
+    "width": 720,
+    "height": 1280
+  },
+  "orientation": "portrait",
+  "aspectMode": "fixed",
+  "page": {
+    "id": "page_ojywl6mv",
+    "name": "Page 1",
+    "root": {
+      "id": "frame_e5scjlnt",
+      "name": "登录界面",
+      "type": "frame",
+      "visible": true,
+      "locked": false,
+      "transform": {
+        "x": 0,
+        "y": 0,
+        "width": 720,
+        "height": 1280,
+        "rotation": 0,
+        "opacity": 1
+      },
+      "pivot": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "scaleX": 1,
+      "scaleY": 1,
+      "fill": "#1a1d27",
+      "fillOpacity": 1,
+      "cornerRadius": 0,
+      "strokeWidth": 0,
+      "strokeOpacity": 1,
+      "clipContent": false,
+      "layout": {
+        "mode": "none",
+        "gap": 8,
+        "padding": 0,
+        "columns": 2,
+        "rows": 0,
+        "primaryAlign": "start",
+        "counterAlign": "start"
+      },
+      "constraints": {
+        "horizontal": "left",
+        "vertical": "top"
+      },
+      "role": "none",
+      "states": [
+        "normal"
+      ],
+      "activeState": "normal",
+      "children": [
+        {
+          "id": "sprite_w14nu0g0",
+          "name": "turret_menu_body",
+          "type": "sprite",
+          "visible": true,
+          "locked": false,
+          "transform": {
+            "x": 70.65194029033454,
+            "y": 452.7355860716803,
+            "width": 578.696119419331,
+            "height": 519.6163357028912,
+            "rotation": 0,
+            "opacity": 1
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          },
+          "scaleX": 1,
+          "scaleY": 1,
+          "fill": "#4f6ef7",
+          "fillOpacity": 1,
+          "cornerRadius": 0,
+          "strokeWidth": 0,
+          "strokeOpacity": 1,
+          "clipContent": false,
+          "layout": {
+            "mode": "none",
+            "gap": 8,
+            "padding": 0,
+            "columns": 2,
+            "rows": 0,
+            "primaryAlign": "start",
+            "counterAlign": "start"
+          },
+          "constraints": {
+            "horizontal": "center",
+            "vertical": "top"
+          },
+          "role": "none",
+          "states": [
+            "normal"
+          ],
+          "activeState": "normal",
+          "assetId": "asset_zmul07p9",
+          "nineSlice": {
+            "top": 12,
+            "right": 11,
+            "bottom": 12,
+            "left": 10
+          },
+          "children": []
+        },
+        {
+          "id": "rect_slujnbfa",
+          "name": "Rectangle",
+          "type": "rect",
+          "visible": true,
+          "locked": false,
+          "transform": {
+            "x": 111.38178986557652,
+            "y": 578.3703680678328,
+            "width": 497.236420268847,
+            "height": 271.4446497262662,
+            "rotation": 0,
+            "opacity": 1
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          },
+          "scaleX": 1,
+          "scaleY": 1,
+          "fill": "#131829",
+          "fillOpacity": 0.23,
+          "cornerRadius": 0,
+          "strokeWidth": 0,
+          "strokeOpacity": 1,
+          "clipContent": true,
+          "layout": {
+            "mode": "grid",
+            "gap": 22,
+            "padding": 15,
+            "columns": 4,
+            "rows": 0,
+            "primaryAlign": "start",
+            "counterAlign": "start"
+          },
+          "constraints": {
+            "horizontal": "center",
+            "vertical": "center"
+          },
+          "role": "toggle",
+          "states": [
+            "normal"
+          ],
+          "activeState": "normal",
+          "children": [
+            {
+              "id": "rect_i3bntxxt",
+              "name": "Rectangle",
+              "type": "rect",
+              "visible": true,
+              "locked": false,
+              "transform": {
+                "x": 15,
+                "y": 15,
+                "width": 100,
+                "height": 100,
+                "rotation": 0,
+                "opacity": 1
+              },
+              "pivot": {
+                "x": 0.5,
+                "y": 0.5
+              },
+              "scaleX": 1,
+              "scaleY": 1,
+              "fill": "#4f6ef7",
+              "fillOpacity": 1,
+              "cornerRadius": 0,
+              "strokeWidth": 0,
+              "strokeOpacity": 1,
+              "clipContent": false,
+              "layout": {
+                "mode": "none",
+                "gap": 8,
+                "padding": 1,
+                "columns": 2,
+                "rows": 0,
+                "primaryAlign": "start",
+                "counterAlign": "center"
+              },
+              "constraints": {
+                "horizontal": "left",
+                "vertical": "top"
+              },
+              "role": "none",
+              "states": [
+                "normal"
+              ],
+              "activeState": "normal"
+            },
+            {
+              "id": "rect_4v6r43pj",
+              "name": "Rectangle",
+              "type": "rect",
+              "visible": true,
+              "locked": false,
+              "transform": {
+                "x": 137.30910506721176,
+                "y": 15,
+                "width": 100,
+                "height": 100,
+                "rotation": 0,
+                "opacity": 1
+              },
+              "pivot": {
+                "x": 0.5,
+                "y": 0.5
+              },
+              "scaleX": 1,
+              "scaleY": 1,
+              "fill": "#4f6ef7",
+              "fillOpacity": 1,
+              "cornerRadius": 0,
+              "strokeWidth": 0,
+              "strokeOpacity": 1,
+              "clipContent": false,
+              "layout": {
+                "mode": "grid",
+                "gap": 8,
+                "padding": 0,
+                "columns": 2,
+                "rows": 0,
+                "primaryAlign": "start",
+                "counterAlign": "start"
+              },
+              "constraints": {
+                "horizontal": "left",
+                "vertical": "top"
+              },
+              "role": "none",
+              "states": [
+                "normal"
+              ],
+              "activeState": "normal"
+            },
+            {
+              "id": "rect_fpglplrg",
+              "name": "Rectangle",
+              "type": "rect",
+              "visible": true,
+              "locked": false,
+              "transform": {
+                "x": 259.6182101344235,
+                "y": 15,
+                "width": 100,
+                "height": 100,
+                "rotation": 0,
+                "opacity": 1
+              },
+              "pivot": {
+                "x": 0.5,
+                "y": 0.5
+              },
+              "scaleX": 1,
+              "scaleY": 1,
+              "fill": "#4f6ef7",
+              "fillOpacity": 1,
+              "cornerRadius": 0,
+              "strokeWidth": 0,
+              "strokeOpacity": 1,
+              "clipContent": false,
+              "layout": {
+                "mode": "grid",
+                "gap": 8,
+                "padding": 0,
+                "columns": 2,
+                "rows": 0,
+                "primaryAlign": "start",
+                "counterAlign": "start"
+              },
+              "constraints": {
+                "horizontal": "left",
+                "vertical": "top"
+              },
+              "role": "none",
+              "states": [
+                "normal"
+              ],
+              "activeState": "normal"
+            },
+            {
+              "id": "rect_90vdhfdo",
+              "name": "Rectangle",
+              "type": "rect",
+              "visible": true,
+              "locked": false,
+              "transform": {
+                "x": 381.9273152016352,
+                "y": 15,
+                "width": 100,
+                "height": 100,
+                "rotation": 0,
+                "opacity": 1
+              },
+              "pivot": {
+                "x": 0.5,
+                "y": 0.5
+              },
+              "scaleX": 1,
+              "scaleY": 1,
+              "fill": "#4f6ef7",
+              "fillOpacity": 1,
+              "cornerRadius": 0,
+              "strokeWidth": 0,
+              "strokeOpacity": 1,
+              "clipContent": false,
+              "layout": {
+                "mode": "grid",
+                "gap": 8,
+                "padding": 0,
+                "columns": 2,
+                "rows": 0,
+                "primaryAlign": "start",
+                "counterAlign": "start"
+              },
+              "constraints": {
+                "horizontal": "left",
+                "vertical": "top"
+              },
+              "role": "none",
+              "states": [
+                "normal"
+              ],
+              "activeState": "normal"
+            },
+            {
+              "id": "rect_zizfw5ag",
+              "name": "Rectangle",
+              "type": "rect",
+              "visible": true,
+              "locked": false,
+              "transform": {
+                "x": 15,
+                "y": 137,
+                "width": 100,
+                "height": 100,
+                "rotation": 0,
+                "opacity": 1
+              },
+              "pivot": {
+                "x": 0.5,
+                "y": 0.5
+              },
+              "scaleX": 1,
+              "scaleY": 1,
+              "fill": "#4f6ef7",
+              "fillOpacity": 1,
+              "cornerRadius": 0,
+              "strokeWidth": 0,
+              "strokeOpacity": 1,
+              "clipContent": false,
+              "layout": {
+                "mode": "grid",
+                "gap": 8,
+                "padding": 0,
+                "columns": 2,
+                "rows": 0,
+                "primaryAlign": "start",
+                "counterAlign": "start"
+              },
+              "constraints": {
+                "horizontal": "left",
+                "vertical": "top"
+              },
+              "role": "none",
+              "states": [
+                "normal"
+              ],
+              "activeState": "normal"
+            }
+          ]
+        },
+        {
+          "id": "sprite_gorxp8co",
+          "name": "button_green_up1",
+          "type": "sprite",
+          "visible": true,
+          "locked": false,
+          "transform": {
+            "x": 212.17888370103614,
+            "y": 862.4488319413168,
+            "width": 295.6422325979277,
+            "height": 79.4751581278552,
+            "rotation": 0,
+            "opacity": 1
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          },
+          "scaleX": 1,
+          "scaleY": 1,
+          "fillOpacity": 1,
+          "cornerRadius": 0,
+          "strokeWidth": 0,
+          "strokeOpacity": 1,
+          "clipContent": false,
+          "layout": {
+            "mode": "none",
+            "gap": 8,
+            "padding": 0,
+            "columns": 2,
+            "rows": 0,
+            "primaryAlign": "start",
+            "counterAlign": "start"
+          },
+          "constraints": {
+            "horizontal": "left",
+            "vertical": "top"
+          },
+          "role": "button",
+          "componentKey": "btn_button_green_up1",
+          "states": [
+            "normal",
+            "pressed",
+            "disabled",
+            "selected"
+          ],
+          "activeState": "normal",
+          "assetId": "asset_bnp4zhdd",
+          "stateAssets": {
+            "selected": "asset_jnm3yyla"
+          },
+          "children": [
+            {
+              "id": "text_o42cd3r3",
+              "name": "文本1",
+              "type": "text",
+              "visible": true,
+              "locked": false,
+              "transform": {
+                "x": 39.98296904196525,
+                "y": 19.103355133933206,
+                "width": 215.67629451399722,
+                "height": 41.26844785998878,
+                "rotation": 0,
+                "opacity": 1
+              },
+              "pivot": {
+                "x": 0.5,
+                "y": 0.5
+              },
+              "scaleX": 1,
+              "scaleY": 1,
+              "fillOpacity": 1,
+              "cornerRadius": 0,
+              "strokeWidth": 0,
+              "strokeOpacity": 1,
+              "clipContent": false,
+              "layout": {
+                "mode": "none",
+                "gap": 8,
+                "padding": 0,
+                "columns": 2,
+                "rows": 0,
+                "primaryAlign": "start",
+                "counterAlign": "start"
+              },
+              "constraints": {
+                "horizontal": "left-right",
+                "vertical": "center"
+              },
+              "role": "none",
+              "componentKey": "ui_1",
+              "states": [
+                "normal"
+              ],
+              "activeState": "normal",
+              "content": "确定",
+              "fontSize": 36,
+              "fontFamily": "SimHei, Heiti SC, sans-serif",
+              "fontWeight": "normal",
+              "fontStyle": "normal",
+              "color": "#ffffff",
+              "align": "center",
+              "verticalAlign": "top",
+              "lineHeight": 1,
+              "letterSpacing": -2,
+              "wordWrap": true,
+              "shadow": {
+                "enabled": true,
+                "color": "#000000",
+                "alpha": 0.894,
+                "blur": 0,
+                "offsetX": 2,
+                "offsetY": 2
+              }
+            }
+          ]
+        },
+        {
+          "id": "sprite_oaeh9k5o",
+          "name": "victoryscreen",
+          "type": "sprite",
+          "visible": true,
+          "locked": false,
+          "transform": {
+            "x": 31.866650000000078,
+            "y": 152.6955634638349,
+            "width": 668,
+            "height": 319,
+            "rotation": 0,
+            "opacity": 1
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          },
+          "scaleX": 1,
+          "scaleY": 1,
+          "fill": "#4f6ef7",
+          "fillOpacity": 1,
+          "cornerRadius": 0,
+          "strokeWidth": 0,
+          "strokeOpacity": 1,
+          "clipContent": false,
+          "layout": {
+            "mode": "none",
+            "gap": 8,
+            "padding": 0,
+            "columns": 2,
+            "rows": 0,
+            "primaryAlign": "start",
+            "counterAlign": "start"
+          },
+          "constraints": {
+            "horizontal": "center",
+            "vertical": "top"
+          },
+          "role": "none",
+          "states": [
+            "normal"
+          ],
+          "activeState": "normal",
+          "assetId": "asset_g0o9byf2",
+          "children": []
+        }
+      ]
+    }
+  },
+  "interactions": [],
+  "atlases": [
+    {
+      "id": "atlas_e9vzi3gd",
+      "name": "默认图集",
+      "file": "默认图集.png",
+      "meta": "默认图集.json"
+    }
+  ],
+  "assets": [
+    {
+      "id": "asset_bnp4zhdd",
+      "name": "button_green_up1",
+      "atlasId": "atlas_e9vzi3gd",
+      "atlasName": "默认图集",
+      "frame": "button_green_up1",
+      "width": 166,
+      "height": 73,
+      "nineSlice": {
+        "top": 0,
+        "right": 37,
+        "bottom": 0,
+        "left": 36
+      }
+    },
+    {
+      "id": "asset_jnm3yyla",
+      "name": "button_green_up2",
+      "atlasId": "atlas_e9vzi3gd",
+      "atlasName": "默认图集",
+      "frame": "button_green_up2",
+      "width": 166,
+      "height": 73,
+      "nineSlice": {
+        "top": 0,
+        "right": 31,
+        "bottom": 0,
+        "left": 31
+      }
+    },
+    {
+      "id": "asset_zmul07p9",
+      "name": "turret_menu_body",
+      "atlasId": "atlas_e9vzi3gd",
+      "atlasName": "默认图集",
+      "frame": "turret_menu_body",
+      "width": 128,
+      "height": 128,
+      "nineSlice": {
+        "top": 30,
+        "right": 22,
+        "bottom": 25,
+        "left": 22
+      }
+    },
+    {
+      "id": "asset_g0o9byf2",
+      "name": "victoryscreen",
+      "atlasId": "atlas_e9vzi3gd",
+      "atlasName": "默认图集",
+      "frame": "victoryscreen",
+      "width": 668,
+      "height": 319
+    }
+  ],
+  "resolve": {
+    "spriteAsset": "stateAssets[activeState] ?? stateAssets.normal ?? assetId",
+    "frame": "assets[id].frame inside atlases[atlasId].meta JSON frames"
+  }
+}

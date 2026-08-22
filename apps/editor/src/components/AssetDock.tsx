@@ -23,7 +23,14 @@ import { AtlasPackModal } from './AtlasPackModal';
 import { confirmDialog, promptDialog, toast } from '../ui/feedback';
 import { ScrubLabel } from '../ui/NumberField';
 
-export function AssetDock() {
+type AssetDockProps = {
+  /** Fill parent height (resizable shell). */
+  fillHeight?: boolean;
+  /** When set, 「收起」 collapses the whole dock via shell. */
+  onRequestCollapse?: () => void;
+};
+
+export function AssetDock({ fillHeight, onRequestCollapse }: AssetDockProps) {
   const document = useEditorStore((s) => s.document);
   const addAssetFromFile = useEditorStore((s) => s.addAssetFromFile);
   const upsertAssetFromFile = useEditorStore((s) => s.upsertAssetFromFile);
@@ -222,8 +229,14 @@ export function AssetDock() {
   };
 
   return (
-    <div className="relative flex shrink-0 flex-col border-t border-slate-800 bg-slate-900/95">
-      <div className="flex items-center gap-2 border-b border-slate-800 px-3 py-1.5">
+    <div
+      className={
+        fillHeight
+          ? 'relative flex h-full min-h-0 flex-col border-t border-slate-800 bg-slate-900/95'
+          : 'relative flex shrink-0 flex-col border-t border-slate-800 bg-slate-900/95'
+      }
+    >
+      <div className="flex shrink-0 items-center gap-2 border-b border-slate-800 px-3 py-1.5">
         <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
           资源库
         </span>
@@ -301,14 +314,21 @@ export function AssetDock() {
         <button
           type="button"
           className="rounded px-2 py-0.5 text-[11px] text-slate-500 hover:text-slate-300"
-          onClick={() => setCollapsed((v) => !v)}
+          onClick={() => {
+            if (onRequestCollapse) onRequestCollapse();
+            else setCollapsed((v) => !v);
+          }}
         >
-          {collapsed ? '展开' : '收起'}
+          {fillHeight || !collapsed ? '收起' : '展开'}
         </button>
       </div>
 
-      {!collapsed && (
-        <div className="flex h-32 min-h-0">
+      {(fillHeight || !collapsed) && (
+        <div
+          className={
+            fillHeight ? 'flex min-h-0 flex-1' : 'flex h-32 min-h-0'
+          }
+        >
           {/* Left: multi-atlas list */}
           <div className="flex w-36 shrink-0 flex-col border-r border-slate-800 bg-slate-950/50">
             <div className="flex items-center justify-between border-b border-slate-800 px-2 py-1">
@@ -389,67 +409,70 @@ export function AssetDock() {
             </div>
           </div>
 
-          {/* Right: sprites in active atlas */}
-          <div className="flex min-w-0 flex-1 gap-2 overflow-x-auto p-2">
-            {assets.length === 0 && (
-              <p className="self-center text-xs text-slate-500">
+          {/* Right: sprites — fixed card aspect, wrap to rows, vertical scroll */}
+          <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto p-2">
+            {assets.length === 0 ? (
+              <p className="py-6 text-center text-xs text-slate-500">
                 「{activeAtlas?.name ?? '图集'}」为空。上传切图后可拖到画布
               </p>
-            )}
-            {assets.map((asset) => (
-              <div
-                key={asset.id}
-                className="flex w-28 shrink-0 flex-col rounded border border-slate-800 bg-slate-950/60 p-1.5"
-              >
-                <div
-                  draggable
-                  onDragStart={(e) => {
-                    const payload = encodeAssetDragPayload(asset.id);
-                    e.dataTransfer.setData('text/plain', payload);
-                    e.dataTransfer.setData(ASSET_DRAG_MIME, payload);
-                    e.dataTransfer.effectAllowed = 'copy';
-                  }}
-                  onDoubleClick={() => addSprite(asset.id, { x: 80, y: 80 })}
-                  className="cursor-grab overflow-hidden rounded bg-slate-900 active:cursor-grabbing"
-                  title="拖到画布 / 双击添加"
-                >
-                  <img
-                    src={asset.dataUrl}
-                    alt={asset.name}
-                    className="pointer-events-none mx-auto h-16 object-contain"
-                  />
-                </div>
-                <button
-                  type="button"
-                  className="mt-1 truncate text-left text-[10px] text-slate-300 hover:text-sky-300"
-                  onClick={() => addSprite(asset.id, { x: 80, y: 80 })}
-                >
-                  {asset.name}
-                </button>
-                <div className="flex items-center justify-between text-[9px] text-slate-500">
-                  <span>
-                    {asset.width}×{asset.height}
-                    {asset.nineSlice ? ' ·9' : ''}
-                  </span>
-                  <span className="flex gap-0.5">
+            ) : (
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(6.5rem,1fr))] content-start gap-2">
+                {assets.map((asset) => (
+                  <div
+                    key={asset.id}
+                    className="flex min-w-0 flex-col rounded border border-slate-800 bg-slate-950/60 p-1.5"
+                  >
+                    <div
+                      draggable
+                      onDragStart={(e) => {
+                        const payload = encodeAssetDragPayload(asset.id);
+                        e.dataTransfer.setData('text/plain', payload);
+                        e.dataTransfer.setData(ASSET_DRAG_MIME, payload);
+                        e.dataTransfer.effectAllowed = 'copy';
+                      }}
+                      onDoubleClick={() => addSprite(asset.id, { x: 80, y: 80 })}
+                      className="aspect-square cursor-grab overflow-hidden rounded bg-slate-900 active:cursor-grabbing"
+                      title="拖到画布 / 双击添加"
+                    >
+                      <img
+                        src={asset.dataUrl}
+                        alt={asset.name}
+                        className="pointer-events-none h-full w-full object-contain"
+                      />
+                    </div>
                     <button
                       type="button"
-                      className="hover:text-sky-300"
-                      onClick={() => setEditing(asset)}
+                      className="mt-1 truncate text-left text-[10px] text-slate-300 hover:text-sky-300"
+                      onClick={() => addSprite(asset.id, { x: 80, y: 80 })}
                     >
-                      <Pencil size={11} />
+                      {asset.name}
                     </button>
-                    <button
-                      type="button"
-                      className="hover:text-red-400"
-                      onClick={() => removeAsset(asset.id)}
-                    >
-                      <Trash2 size={11} />
-                    </button>
-                  </span>
-                </div>
+                    <div className="flex items-center justify-between gap-1 text-[9px] text-slate-500">
+                      <span className="min-w-0 truncate">
+                        {asset.width}×{asset.height}
+                        {asset.nineSlice ? ' ·9' : ''}
+                      </span>
+                      <span className="flex shrink-0 gap-0.5">
+                        <button
+                          type="button"
+                          className="hover:text-sky-300"
+                          onClick={() => setEditing(asset)}
+                        >
+                          <Pencil size={11} />
+                        </button>
+                        <button
+                          type="button"
+                          className="hover:text-red-400"
+                          onClick={() => removeAsset(asset.id)}
+                        >
+                          <Trash2 size={11} />
+                        </button>
+                      </span>
+                    </div>
+                  </div>
+                ))}
               </div>
-            ))}
+            )}
           </div>
         </div>
       )}

@@ -21,6 +21,7 @@ export type NodeRole =
   | 'panel'
   | 'icon'
   | 'progress'
+  | 'dynamicValue'
   | 'tab'
   | 'other';
 
@@ -61,6 +62,7 @@ export const NODE_ROLES: NodeRole[] = [
   'panel',
   'icon',
   'progress',
+  'dynamicValue',
   'tab',
   'other',
 ];

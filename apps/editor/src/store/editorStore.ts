@@ -22,9 +22,11 @@ import {
   buildPrefabFromDocument,
   serializePrefabJson,
   applyPrefabToDocument,
+  filterTopLevelNodeIds,
   type ApplyPrefabMode,
   SceneNode,
 } from '@game-ui/document';
+import { debouncedStorageSet, flushDebouncedStorage } from '../utils/persist';
 
 const STORAGE_KEY = 'game-ui-editer:document:v1';
 
@@ -50,6 +52,8 @@ interface EditorState {
   showAssetPanel: boolean;
   camera: { x: number; y: number; zoom: number };
   rightPanel: 'assets' | 'atlas';
+  /** True while pointer-drag / live scrub is mutating transformDraft only. */
+  isTransforming: boolean;
 
   syncFromHistory: () => void;
   persist: () => void;
@@ -73,6 +77,8 @@ interface EditorState {
   /** Create a new page / interface Root and switch to it. */
   addPage: () => void;
   setActivePage: (pageId: string) => void;
+  /** Delete a page / interface Root (keeps at least one). */
+  deletePage: (pageId: string) => boolean;
   addSprite: (assetId: string, position?: { x: number; y: number }) => void;
   moveLayer: (
     nodeId: string,
@@ -160,6 +166,8 @@ interface EditorState {
     }>
   ) => void;
   flushTransform: () => void;
+  /** Nudge top-level selected nodes (children move with parents). */
+  nudgeSelection: (dx: number, dy: number) => void;
 
   addAssetFromFile: (file: File, atlasId?: string) => Promise<Asset | null>;
   /** Same as addAssetFromFile; returns whether an existing same-name sprite was updated. */
@@ -248,14 +256,41 @@ interface EditorState {
 
 let transformDraft: Document | null = null;
 
+type TransformPatch = {
+  id: string;
+  transform: Partial<Document['pages'][0]['root']['transform']>;
+};
+
+let transformDraftListener: ((patches: TransformPatch[]) => void) | null = null;
+
+/** Canvas registers to patch Pixi visuals during live transform (panel scrub / drag). */
+export function setTransformDraftListener(
+  fn: ((patches: TransformPatch[]) => void) | null
+): void {
+  transformDraftListener = fn;
+}
+
+function notifyTransformDraft(patches: TransformPatch[]): void {
+  transformDraftListener?.(patches);
+}
+
+function beginTransformDraft(set: (partial: Partial<EditorState>) => void): Document {
+  if (!transformDraft) {
+    transformDraft = structuredClone(history.document);
+    set({ isTransforming: true });
+  }
+  return transformDraft;
+}
+
+/** Live transform document (not in Zustand). Null when not dragging. */
+export function getTransformDraft(): Document | null {
+  return transformDraft;
+}
+
 export const useEditorStore = create<EditorState>((set, get) => {
   history.subscribe((doc, canUndo, canRedo) => {
     set({ document: structuredClone(doc), canUndo, canRedo });
-    try {
-      localStorage.setItem(STORAGE_KEY, serializeDocumentJson(doc, false));
-    } catch {
-      /* quota */
-    }
+    debouncedStorageSet(STORAGE_KEY, serializeDocumentJson(doc, false));
   });
 
   return {
@@ -268,6 +303,7 @@ export const useEditorStore = create<EditorState>((set, get) => {
     showAssetPanel: true,
     camera: { x: 40, y: 40, zoom: 0.75 },
     rightPanel: 'assets' as const,
+    isTransforming: false,
 
     syncFromHistory: () => {
       set({
@@ -278,7 +314,7 @@ export const useEditorStore = create<EditorState>((set, get) => {
     },
 
     persist: () => {
-      localStorage.setItem(
+      flushDebouncedStorage(
         STORAGE_KEY,
         serializeDocumentJson(history.document, false)
       );
@@ -388,6 +424,18 @@ export const useEditorStore = create<EditorState>((set, get) => {
       history.replaceSilent(doc);
       const page = getActivePage(history.document);
       if (page) set({ selectedIds: [page.root.id] });
+    },
+
+    deletePage: (pageId) => {
+      let ok = false;
+      history.update((doc) => {
+        ok = commands.deletePage(doc, pageId);
+      });
+      if (ok) {
+        const page = getActivePage(history.document);
+        set({ selectedIds: page ? [page.root.id] : [] });
+      }
+      return ok;
     },
 
     moveLayer: (nodeId, targetId, mode) => {
@@ -519,13 +567,12 @@ export const useEditorStore = create<EditorState>((set, get) => {
       if (commit) {
         history.update((doc) => commands.setNodeTransform(doc, id, transform));
         transformDraft = null;
+        set({ isTransforming: false });
         return;
       }
-      if (!transformDraft) {
-        transformDraft = structuredClone(history.document);
-      }
-      commands.setNodeTransform(transformDraft, id, transform);
-      set({ document: structuredClone(transformDraft) });
+      const draft = beginTransformDraft(set);
+      commands.setNodeTransform(draft, id, transform);
+      notifyTransformDraft([{ id, transform }]);
     },
 
     setSelectionTransform: (transform, commit = false) => {
@@ -536,32 +583,56 @@ export const useEditorStore = create<EditorState>((set, get) => {
           for (const id of ids) commands.setNodeTransform(doc, id, transform);
         });
         transformDraft = null;
+        set({ isTransforming: false });
         return;
       }
-      if (!transformDraft) {
-        transformDraft = structuredClone(history.document);
-      }
+      const draft = beginTransformDraft(set);
+      const patches: TransformPatch[] = [];
       for (const id of ids) {
-        commands.setNodeTransform(transformDraft, id, transform);
+        commands.setNodeTransform(draft, id, transform);
+        patches.push({ id, transform });
       }
-      set({ document: structuredClone(transformDraft) });
+      notifyTransformDraft(patches);
     },
 
     setTransformsLive: (patches) => {
       if (!patches.length) return;
-      if (!transformDraft) {
-        transformDraft = structuredClone(history.document);
-      }
+      const draft = beginTransformDraft(set);
       for (const { id, transform } of patches) {
-        commands.setNodeTransform(transformDraft, id, transform);
+        commands.setNodeTransform(draft, id, transform);
       }
-      set({ document: structuredClone(transformDraft) });
+      notifyTransformDraft(patches);
     },
 
     flushTransform: () => {
-      if (!transformDraft) return;
+      if (!transformDraft) {
+        set({ isTransforming: false });
+        return;
+      }
       history.commit(transformDraft);
       transformDraft = null;
+      set({ isTransforming: false });
+    },
+
+    nudgeSelection: (dx, dy) => {
+      if (!dx && !dy) return;
+      const ids = filterTopLevelNodeIds(
+        history.document,
+        get().selectedIds
+      );
+      if (!ids.length) return;
+      const rootId = getActivePage(history.document)?.root.id;
+      history.update((doc) => {
+        for (const id of ids) {
+          if (id === rootId) continue;
+          const found = findNodeInDocument(doc, id);
+          if (!found || found.node.locked) continue;
+          commands.setNodeTransform(doc, id, {
+            x: found.node.transform.x + dx,
+            y: found.node.transform.y + dy,
+          });
+        }
+      });
     },
 
     addAssetFromFile: async (file, atlasId) => {

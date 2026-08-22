@@ -144,4 +144,4 @@ On `type: "text"`, optional `shadow`:
 
 ## Naming prefixes
 
-`btn_` `input_` `tog_` `list_` `item_` `scroll_` `txt_` `img_` `pnl_` `icon_` `bar_` `tab_` `ui_`
+`btn_` `input_` `tog_` `list_` `item_` `scroll_` `txt_` `img_` `pnl_` `icon_` `bar_` `val_` `tab_` `ui_`

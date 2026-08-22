@@ -55,6 +55,66 @@ export function findNodeInDocument(
   return null;
 }
 
+/**
+ * Ancestor ids from root down to (but not including) `targetId`.
+ * Empty if target is missing or is the root itself.
+ */
+export function getNodeAncestorIds(
+  root: SceneNode,
+  targetId: string
+): string[] {
+  if (root.id === targetId) return [];
+  const path: string[] = [];
+  const walk = (node: SceneNode, ancestors: string[]): boolean => {
+    if (node.id === targetId) {
+      path.push(...ancestors);
+      return true;
+    }
+    for (const child of node.children ?? []) {
+      if (walk(child, [...ancestors, node.id])) return true;
+    }
+    return false;
+  };
+  walk(root, []);
+  return path;
+}
+
+export function isDescendantOf(ancestor: SceneNode, maybeChildId: string): boolean {
+  if (!ancestor.children) return false;
+  for (const c of ancestor.children) {
+    if (c.id === maybeChildId) return true;
+    if (isDescendantOf(c, maybeChildId)) return true;
+  }
+  return false;
+}
+
+/** True if nodeId is selected or nested under any selected node. */
+export function isUnderSelection(
+  doc: Document,
+  nodeId: string,
+  selectedIds: string[]
+): boolean {
+  if (selectedIds.includes(nodeId)) return true;
+  for (const sid of selectedIds) {
+    const found = findNodeInDocument(doc, sid);
+    if (found && isDescendantOf(found.node, nodeId)) return true;
+  }
+  return false;
+}
+
+/**
+ * Keep only top-level selected ids (drop ids whose ancestor is also selected).
+ * Moving these translates children with them.
+ */
+export function filterTopLevelNodeIds(doc: Document, ids: string[]): string[] {
+  return ids.filter((id) => {
+    const found = findNodeInDocument(doc, id);
+    if (!found) return false;
+    const ancestors = getNodeAncestorIds(found.page.root, id);
+    return !ancestors.some((a) => ids.includes(a));
+  });
+}
+
 export function walkNodes(node: SceneNode, visit: (n: SceneNode) => void): void {
   visit(node);
   if (node.children) {

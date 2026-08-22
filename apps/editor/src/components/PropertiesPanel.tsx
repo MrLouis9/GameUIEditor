@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ChevronDown,
   ChevronRight,
@@ -24,7 +24,7 @@ import {
   NODE_UI_STATES,
   suggestComponentKey,
   findInteractionForNode,
-  lintNodeIssues,
+  lintNodeIssuesForNode,
   type Document,
   type NodeRole,
   type NodeUiState,
@@ -35,7 +35,7 @@ import {
   type SceneNode,
   normalizeTextShadow,
 } from '@game-ui/document';
-import { useEditorStore } from '../store/editorStore';
+import { getTransformDraft, useEditorStore } from '../store/editorStore';
 import { ColorPickerPopover, normalizeHex } from './ColorPicker';
 import { toast } from '../ui/feedback';
 import { ScrubLabel } from '../ui/NumberField';
@@ -53,10 +53,11 @@ function sameValue<T>(values: T[]): T | null {
 export function PropertiesPanel() {
   const document = useEditorStore((s) => s.document);
   const selectedIds = useEditorStore((s) => s.selectedIds);
+  const isTransforming = useEditorStore((s) => s.isTransforming);
   const setTransform = useEditorStore((s) => s.setTransform);
   const setSelectionTransform = useEditorStore((s) => s.setSelectionTransform);
   const flushTransform = useEditorStore((s) => s.flushTransform);
-  const renameSelected = useEditorStore((s) => s.renameSelected);
+  const renameNode = useEditorStore((s) => s.renameNode);
   const updateText = useEditorStore((s) => s.updateText);
   const updateSelectionText = useEditorStore((s) => s.updateSelectionText);
   const updateNodeStyle = useEditorStore((s) => s.updateNodeStyle);
@@ -73,10 +74,18 @@ export function PropertiesPanel() {
   const [aspectLock, setAspectLock] = useState(false);
   const [fillPicker, setFillPicker] = useState(false);
   const [strokePicker, setStrokePicker] = useState(false);
+  const [nameDraft, setNameDraft] = useState('');
+  const renameTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const transformDoc =
+    isTransforming && getTransformDraft() ? getTransformDraft()! : document;
 
   const page = getActivePage(document);
   const nodes = selectedIds
     .map((id) => findNodeInDocument(document, id)?.node)
+    .filter((n): n is SceneNode => !!n);
+  const transformNodes = selectedIds
+    .map((id) => findNodeInDocument(transformDoc, id)?.node)
     .filter((n): n is SceneNode => !!n);
   const multi = nodes.length > 1;
   const node = nodes[0];
@@ -84,10 +93,35 @@ export function PropertiesPanel() {
   const allLocked = nodes.length > 0 && nodes.every((n) => n.locked);
   const allSameType = nodes.length > 0 && nodes.every((n) => n.type === nodes[0]!.type);
   const allText = allSameType && nodes[0]?.type === 'text';
+  const primaryNodeId = node?.id ?? '';
+  const primaryNodeName = node?.name ?? '';
+
+  useEffect(() => {
+    setNameDraft(primaryNodeName);
+  }, [primaryNodeId, primaryNodeName]);
+
+  useEffect(
+    () => () => {
+      if (renameTimerRef.current) clearTimeout(renameTimerRef.current);
+    },
+    []
+  );
+
+  const [, setTransformTick] = useState(0);
+  useEffect(() => {
+    if (!isTransforming) return;
+    let raf = 0;
+    const tick = () => {
+      setTransformTick((n) => n + 1);
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [isTransforming]);
 
   if (!node || nodes.length === 0) {
     return (
-      <aside className="flex w-[280px] shrink-0 flex-col border-l border-slate-800 bg-slate-900">
+      <aside className="flex h-full min-w-0 w-full flex-col border-l border-slate-800 bg-slate-900">
         <div className="border-b border-slate-800 px-3 py-2.5 text-[12px] font-medium text-slate-400">
           属性
         </div>
@@ -130,12 +164,12 @@ export function PropertiesPanel() {
     else updateText(node.id, patch);
   };
 
-  const w = sameValue(nodes.map((n) => n.transform.width));
-  const h = sameValue(nodes.map((n) => n.transform.height));
-  const x = sameValue(nodes.map((n) => n.transform.x));
-  const y = sameValue(nodes.map((n) => n.transform.y));
-  const rotation = sameValue(nodes.map((n) => n.transform.rotation));
-  const opacity = sameValue(nodes.map((n) => n.transform.opacity ?? 1));
+  const w = sameValue(transformNodes.map((n) => n.transform.width));
+  const h = sameValue(transformNodes.map((n) => n.transform.height));
+  const x = sameValue(transformNodes.map((n) => n.transform.x));
+  const y = sameValue(transformNodes.map((n) => n.transform.y));
+  const rotation = sameValue(transformNodes.map((n) => n.transform.rotation));
+  const opacity = sameValue(transformNodes.map((n) => n.transform.opacity ?? 1));
   const corner = sameValue(nodes.map((n) => n.cornerRadius ?? 0));
   const scaleX = sameValue(nodes.map((n) => n.scaleX ?? 1));
   const scaleY = sameValue(nodes.map((n) => n.scaleY ?? 1));
@@ -200,8 +234,24 @@ export function PropertiesPanel() {
     ? node.type
     : `混合(${[...new Set(nodes.map((n) => n.type))].join('/')})`;
 
+  const commitRename = (value: string) => {
+    const next = value.trim();
+    if (next && next !== node.name) renameNode(node.id, next);
+  };
+
+  const onNameChange = (value: string) => {
+    setNameDraft(value);
+    if (renameTimerRef.current) clearTimeout(renameTimerRef.current);
+    renameTimerRef.current = setTimeout(() => commitRename(value), 300);
+  };
+
+  const onNameBlur = () => {
+    if (renameTimerRef.current) clearTimeout(renameTimerRef.current);
+    commitRename(nameDraft);
+  };
+
   return (
-    <aside className="flex w-[280px] shrink-0 flex-col border-l border-slate-800 bg-slate-900 text-slate-200">
+    <aside className="flex h-full min-w-0 w-full flex-col border-l border-slate-800 bg-slate-900 text-slate-200">
       <div className="border-b border-slate-800 px-3 py-2.5 text-[12px] font-medium text-slate-300">
         属性 · {typeLabel}
         {multi && (
@@ -215,9 +265,10 @@ export function PropertiesPanel() {
         <div className="space-y-3 px-3 py-3">
           {!multi ? (
             <input
-              value={node.name}
+              value={nameDraft}
               disabled={node.locked}
-              onChange={(e) => renameSelected(e.target.value)}
+              onChange={(e) => onNameChange(e.target.value)}
+              onBlur={onNameBlur}
               className="w-full rounded-md border-0 bg-slate-800 px-2.5 py-1.5 text-[12px] text-white outline-none focus:ring-1 focus:ring-sky-500/40 disabled:opacity-40"
             />
           ) : (
@@ -847,28 +898,30 @@ export function PropertiesPanel() {
           </PropSection>
         )}
 
-        <PropSection title="遮罩 / ScrollView">
-          <div className="px-3 pb-3">
-            <label className="flex items-start gap-2 text-[11px] leading-snug text-slate-400">
-              <input
-                type="checkbox"
-                className="mt-0.5"
-                checked={clipContent === true}
-                ref={(el) => {
-                  if (el) el.indeterminate = clipContent == null;
-                }}
-                disabled={allLocked}
-                onChange={(e) =>
-                  applyStyle(node.id, { clipContent: e.target.checked })
-                }
-              />
-              裁剪子节点（超出隐藏，适合道具列表滚动区域）
-              {clipContent == null && (
-                <span className="text-slate-600">· 混合</span>
-              )}
-            </label>
-          </div>
-        </PropSection>
+        {!allText && (
+          <PropSection title="遮罩 / ScrollView">
+            <div className="px-3 pb-3">
+              <label className="flex items-start gap-2 text-[11px] leading-snug text-slate-400">
+                <input
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={clipContent === true}
+                  ref={(el) => {
+                    if (el) el.indeterminate = clipContent == null;
+                  }}
+                  disabled={allLocked}
+                  onChange={(e) =>
+                    applyStyle(node.id, { clipContent: e.target.checked })
+                  }
+                />
+                裁剪子节点（超出隐藏，适合道具列表滚动区域）
+                {clipContent == null && (
+                  <span className="text-slate-600">· 混合</span>
+                )}
+              </label>
+            </div>
+          </PropSection>
+        )}
 
         {allText && node.type === 'text' && (
           <PropSection title="文本">
@@ -895,8 +948,26 @@ export function PropertiesPanel() {
                     applyText({ fontSize: Math.max(8, v) })
                   }
                 />
+                <Field
+                  label="行距"
+                  value={sameValue(
+                    nodes.map((n) => {
+                      if (n.type !== 'text') return 0;
+                      const fs = n.fontSize ?? 28;
+                      return n.lineHeight > 0
+                        ? n.lineHeight
+                        : Math.round(fs * 1.25);
+                    })
+                  )}
+                  disabled={allLocked}
+                  onChange={(v) =>
+                    applyText({ lineHeight: Math.max(0, Math.round(v)) })
+                  }
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-1.5">
                 <SelectField
-                  label="对齐"
+                  label="水平对齐"
                   value={
                     sameValue(
                       nodes.map((n) =>
@@ -919,6 +990,38 @@ export function PropertiesPanel() {
                     { value: 'left', label: '左' },
                     { value: 'center', label: '中' },
                     { value: 'right', label: '右' },
+                  ]}
+                />
+                <SelectField
+                  label="垂直对齐"
+                  value={
+                    sameValue(
+                      nodes.map((n) =>
+                        n.type === 'text'
+                          ? n.verticalAlign || 'top'
+                          : 'top'
+                      )
+                    ) ?? 'top'
+                  }
+                  mixed={
+                    sameValue(
+                      nodes.map((n) =>
+                        n.type === 'text'
+                          ? n.verticalAlign || 'top'
+                          : 'top'
+                      )
+                    ) == null
+                  }
+                  disabled={allLocked}
+                  onChange={(v) =>
+                    applyText({
+                      verticalAlign: v as TextNode['verticalAlign'],
+                    })
+                  }
+                  options={[
+                    { value: 'top', label: '上' },
+                    { value: 'middle', label: '中' },
+                    { value: 'bottom', label: '下' },
                   ]}
                 />
               </div>
@@ -1418,6 +1521,7 @@ const ROLE_LABELS: Record<NodeRole, string> = {
   panel: '面板',
   icon: '图标',
   progress: '进度',
+  dynamicValue: '动态数值',
   tab: '页签',
   other: '其他',
 };
@@ -1486,7 +1590,10 @@ function SemanticsSection({
     notes?: string;
   }) => void;
 }) {
-  const issues = lintNodeIssues(doc, nodeId);
+  const issues = useMemo(
+    () => lintNodeIssuesForNode(doc, nodeId),
+    [doc, nodeId]
+  );
   const showInteraction = role !== 'none' || !!componentKey || !!interaction;
   const hasAdvanced =
     states.length > 1 ||

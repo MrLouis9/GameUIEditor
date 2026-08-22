@@ -1,6 +1,8 @@
 import type { SceneNode } from '@game-ui/document';
 import {
   getActivePage,
+  findNodeInDocument,
+  getNodeAncestorIds,
   encodeLayerDragPayload,
   decodeLayerDragPayload,
   LAYER_DRAG_MIME,
@@ -15,11 +17,13 @@ import {
   Package,
   Plus,
   Square,
+  Trash2,
   Type,
   Unlock,
 } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { useEditorStore } from '../store/editorStore';
+import { confirmDialog, toast } from '../ui/feedback';
 import { AiHandoffModal } from './AiHandoffModal';
 
 type DropMode = 'before' | 'after' | 'inside' | null;
@@ -39,15 +43,75 @@ export function LayerPanel() {
   const addRect = useEditorStore((s) => s.addRect);
   const addPage = useEditorStore((s) => s.addPage);
   const setActivePage = useEditorStore((s) => s.setActivePage);
+  const deletePage = useEditorStore((s) => s.deletePage);
   const persist = useEditorStore((s) => s.persist);
 
   const [dragOverId, setDragOverId] = useState<string | null>(null);
   const [dropMode, setDropMode] = useState<DropMode>(null);
   const [handoffOpen, setHandoffOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  /** Ids whose children are collapsed (default: all expanded). */
+  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(() => new Set());
+  const listRef = useRef<HTMLDivElement>(null);
 
   const activePage = getActivePage(document);
   const pages = document.pages;
+
+  const toggleCollapsed = useCallback((id: string) => {
+    setCollapsedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  // Canvas selection → expand ancestors and scroll layer row into view
+  const primaryId = selectedIds[0] ?? null;
+  useEffect(() => {
+    if (!primaryId) return;
+    const doc = useEditorStore.getState().document;
+    const found = findNodeInDocument(doc, primaryId);
+    if (!found) return;
+
+    const active = getActivePage(doc);
+    if (found.page.id !== active?.id) {
+      setActivePage(found.page.id);
+    }
+
+    const ancestors = getNodeAncestorIds(found.page.root, primaryId);
+    if (ancestors.length) {
+      setCollapsedIds((prev) => {
+        let changed = false;
+        const next = new Set(prev);
+        for (const id of ancestors) {
+          if (next.delete(id)) changed = true;
+        }
+        return changed ? next : prev;
+      });
+    }
+
+    let cancelled = false;
+    const scrollToRow = () => {
+      if (cancelled || !listRef.current) return;
+      const safe =
+        typeof CSS !== 'undefined' && typeof CSS.escape === 'function'
+          ? CSS.escape(primaryId)
+          : primaryId.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+      const el = listRef.current.querySelector(`[data-layer-id="${safe}"]`);
+      if (el instanceof HTMLElement) {
+        el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      }
+    };
+    // Two frames: wait for expand state commit + child rows to mount
+    const id = requestAnimationFrame(() => {
+      requestAnimationFrame(scrollToRow);
+    });
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(id);
+    };
+  }, [primaryId, setActivePage]);
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-slate-900/80">
@@ -76,7 +140,7 @@ export function LayerPanel() {
           + 新建界面 · Ctrl 多选 · Shift 范围 · 拖拽排序/嵌套
         </p>
       </div>
-      <div className="flex-1 overflow-auto p-1 text-sm">
+      <div ref={listRef} className="flex-1 overflow-auto p-1 text-sm">
         {pages.map((page) => (
           <LayerRow
             key={page.id}
@@ -114,6 +178,8 @@ export function LayerPanel() {
               setDropMode(null);
             }}
             moveLayers={moveLayers}
+            collapsedIds={collapsedIds}
+            onToggleCollapsed={toggleCollapsed}
             onActivateRoot={() => {
               if (page.id !== activePage?.id) setActivePage(page.id);
             }}
@@ -125,6 +191,24 @@ export function LayerPanel() {
                   }
                 : undefined
             }
+            onDeletePage={
+              pages.length > 1
+                ? async () => {
+                    const ok = await confirmDialog({
+                      title: '删掉此界面',
+                      message: `确定删除「${page.root.name || page.name}」？此操作可通过撤销找回。`,
+                      confirmLabel: '删除',
+                      danger: true,
+                    });
+                    if (!ok) return;
+                    if (deletePage(page.id)) {
+                      toast(`已删除界面：${page.root.name || page.name}`, 'success');
+                    } else {
+                      toast('至少需要保留一个界面', 'warn');
+                    }
+                  }
+                : undefined
+            }
           />
         ))}
       </div>
@@ -132,7 +216,7 @@ export function LayerPanel() {
   );
 }
 
-function LayerRow({
+function LayerRowInner({
   node,
   depth,
   selectedIds,
@@ -152,8 +236,11 @@ function LayerRow({
   onDragLeaveRow,
   onDropRow,
   moveLayers,
+  collapsedIds,
+  onToggleCollapsed,
   onActivateRoot,
   onOpenHandoff,
+  onDeletePage,
 }: {
   node: SceneNode;
   depth: number;
@@ -179,10 +266,13 @@ function LayerRow({
     targetId: string,
     mode: 'before' | 'after' | 'inside'
   ) => void;
+  collapsedIds: Set<string>;
+  onToggleCollapsed: (id: string) => void;
   onActivateRoot?: () => void;
   onOpenHandoff?: () => void;
+  onDeletePage?: () => void | Promise<void>;
 }) {
-  const [open, setOpen] = useState(true);
+  const open = !collapsedIds.has(node.id);
   const selected = selectedIds.includes(node.id);
   const hasChildren = !!node.children?.length;
   const children = node.children ?? [];
@@ -219,6 +309,7 @@ function LayerRow({
   return (
     <div>
       <div
+        data-layer-id={node.id}
         draggable={!isRoot && !node.locked && !editing}
         onDragStart={(e) => {
           if (isRoot || editing) return;
@@ -310,7 +401,7 @@ function LayerRow({
           className="w-4 text-slate-500"
           onClick={(e) => {
             e.stopPropagation();
-            setOpen((v) => !v);
+            if (hasChildren) onToggleCollapsed(node.id);
           }}
         >
           {hasChildren ? (
@@ -361,6 +452,21 @@ function LayerRow({
           >
             <Package size={11} />
             交接
+          </button>
+        )}
+
+        {isRoot && onDeletePage && (
+          <button
+            type="button"
+            title="删掉此界面"
+            className="inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[10px] text-rose-400 hover:bg-rose-950/50"
+            onClick={(e) => {
+              e.stopPropagation();
+              void onDeletePage();
+            }}
+          >
+            <Trash2 size={11} />
+            删除
           </button>
         )}
 
@@ -424,11 +530,45 @@ function LayerRow({
             onDragLeaveRow={onDragLeaveRow}
             onDropRow={onDropRow}
             moveLayers={moveLayers}
+            collapsedIds={collapsedIds}
+            onToggleCollapsed={onToggleCollapsed}
           />
         ))}
     </div>
   );
 }
+
+type LayerRowProps = Parameters<typeof LayerRowInner>[0];
+
+function layerRowPropsEqual(prev: LayerRowProps, next: LayerRowProps): boolean {
+  if (prev.node.id !== next.node.id) return false;
+  if (prev.node.name !== next.node.name) return false;
+  if (prev.node.visible !== next.node.visible) return false;
+  if (prev.node.locked !== next.node.locked) return false;
+  if (prev.depth !== next.depth) return false;
+  if (prev.isRoot !== next.isRoot) return false;
+  if (prev.isActiveRoot !== next.isActiveRoot) return false;
+  if ((prev.editingId === prev.node.id) !== (next.editingId === next.node.id)) {
+    return false;
+  }
+  const prevSelected = prev.selectedIds.includes(prev.node.id);
+  const nextSelected = next.selectedIds.includes(next.node.id);
+  if (prevSelected !== nextSelected) return false;
+  const prevOpen = !prev.collapsedIds.has(prev.node.id);
+  const nextOpen = !next.collapsedIds.has(next.node.id);
+  if (prevOpen !== nextOpen) return false;
+  if (prev.dragOverId === prev.node.id || next.dragOverId === next.node.id) {
+    if (prev.dragOverId !== next.dragOverId || prev.dropMode !== next.dropMode) {
+      return false;
+    }
+  }
+  const prevKids = prev.node.children?.length ?? 0;
+  const nextKids = next.node.children?.length ?? 0;
+  if (prevKids !== nextKids) return false;
+  return true;
+}
+
+const LayerRow = memo(LayerRowInner, layerRowPropsEqual);
 
 function TypeBadge({ node }: { node: SceneNode }) {
   const mode = node.layout?.mode ?? 'none';

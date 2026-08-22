@@ -3,7 +3,11 @@ import {
   ASSET_DRAG_MIME,
   decodeAssetDragPayload,
 } from '@game-ui/document';
-import { useEditorStore } from '../store/editorStore';
+import {
+  getTransformDraft,
+  setTransformDraftListener,
+  useEditorStore,
+} from '../store/editorStore';
 import { EditorStage } from './EditorStage';
 
 export function PixiCanvas() {
@@ -23,12 +27,14 @@ export function PixiCanvas() {
     const design = useEditorStore.getState().document.designSize;
     let x = Math.round(artboardPos.x - asset.width / 2);
     let y = Math.round(artboardPos.y - asset.height / 2);
-    // Keep mostly on artboard so it is visible after drop
     x = Math.max(-asset.width + 8, Math.min(design.width - 8, x));
     y = Math.max(-asset.height + 8, Math.min(design.height - 8, y));
 
     useEditorStore.getState().addSprite(assetId, { x, y });
   };
+
+  const getDocumentForRender = () =>
+    getTransformDraft() ?? useEditorStore.getState().document;
 
   useEffect(() => {
     const host = hostRef.current;
@@ -46,10 +52,16 @@ export function PixiCanvas() {
       getTool: () => useEditorStore.getState().tool,
       getSelectedIds: () => useEditorStore.getState().selectedIds,
       getDocument: () => useEditorStore.getState().document,
+      getDocumentForRender,
       onAssetDrop: (assetId, pos) => placeAsset(assetId, pos),
       onCameraChange: (cam) => useEditorStore.getState().setCamera(cam),
     });
     stageRef.current = stage;
+
+    setTransformDraftListener((patches) => {
+      stage.patchNodeTransforms(patches);
+      stage.scheduleSelectionRedraw();
+    });
 
     let cancelled = false;
     (async () => {
@@ -64,6 +76,7 @@ export function PixiCanvas() {
 
     return () => {
       cancelled = true;
+      setTransformDraftListener(null);
       stage.destroy();
       stageRef.current = null;
     };
@@ -84,8 +97,8 @@ export function PixiCanvas() {
   useEffect(() => {
     const stage = stageRef.current;
     if (!stage) return;
-    stage.drawSelection(document);
-  }, [selectedIds, document]);
+    stage.scheduleSelectionRedraw();
+  }, [selectedIds]);
 
   const onDragOver = (e: React.DragEvent) => {
     e.preventDefault();

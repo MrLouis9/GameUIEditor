@@ -39,7 +39,11 @@ import {
 import { createAtlas } from './atlases';
 import { applyAutoLayout } from './layout';
 import { applyConstraintsToChildren } from './constraints';
-import { upsertInteraction as upsertIx, removeInteraction as removeIx } from './interactions';
+import {
+  upsertInteraction as upsertIx,
+  removeInteraction as removeIx,
+  interactionTargetOf,
+} from './interactions';
 import { DEFAULT_CONSTRAINTS } from './types';
 import { mergeStateAssets, normalizeTextShadow } from './visualState';
 
@@ -522,6 +526,36 @@ export function addPage(doc: Document, name?: string): Page {
 export function setActivePage(doc: Document, pageId: string): boolean {
   if (!doc.pages.some((p) => p.id === pageId)) return false;
   doc.activePageId = pageId;
+  return true;
+}
+
+/**
+ * Remove a page / interface Root.
+ * Keeps at least one page. If the active page is removed, activates a neighbor.
+ * Also drops interactions whose targets only lived under that page.
+ */
+export function deletePage(doc: Document, pageId: string): boolean {
+  if (doc.pages.length <= 1) return false;
+  const idx = doc.pages.findIndex((p) => p.id === pageId);
+  if (idx < 0) return false;
+
+  const removed = doc.pages[idx]!;
+  const targets = new Set<string>();
+  for (const n of flattenNodes(removed.root)) {
+    targets.add(interactionTargetOf(n));
+    targets.add(n.id);
+    if (n.componentKey?.trim()) targets.add(n.componentKey.trim());
+  }
+
+  doc.pages.splice(idx, 1);
+  if (doc.activePageId === pageId) {
+    const next = doc.pages[Math.min(idx, doc.pages.length - 1)]!;
+    doc.activePageId = next.id;
+  }
+
+  if (doc.interactions?.length) {
+    doc.interactions = doc.interactions.filter((i) => !targets.has(i.target));
+  }
   return true;
 }
 

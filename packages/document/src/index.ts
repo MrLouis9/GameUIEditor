@@ -114,6 +114,10 @@ export {
   getActivePage,
   findNode,
   findNodeInDocument,
+  getNodeAncestorIds,
+  isDescendantOf,
+  isUnderSelection,
+  filterTopLevelNodeIds,
   walkNodes,
   cloneNodeDeep,
   flattenNodes,
@@ -163,6 +167,7 @@ export {
   isValidComponentKey,
   lintNaming,
   lintNodeIssues,
+  lintNodeIssuesForNode,
   namingConventionMarkdown,
   namingIssuesMarkdown,
 } from './naming';

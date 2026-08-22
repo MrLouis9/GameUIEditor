@@ -35,41 +35,38 @@ import { AiHandoffModal } from './AiHandoffModal';
 import { confirmDialog, toast } from '../ui/feedback';
 
 export function Toolbar() {
-  const {
-    tool,
-    setTool,
-    canUndo,
-    canRedo,
-    undo,
-    redo,
-    addFrame,
-    addRect,
-    addText,
-    deleteSelection,
-    groupSelection,
-    duplicateSelection,
-    copySelection,
-    pasteClipboard,
-    setLocked,
-    setVisible,
-    newDocument,
-    exportJson,
-    importJsonFile,
-    setDesignPreset,
-    document,
-    alignSelection,
-    persist,
-    camera,
-    setCamera,
-  } = useEditorStore();
+  const tool = useEditorStore((s) => s.tool);
+  const setTool = useEditorStore((s) => s.setTool);
+  const canUndo = useEditorStore((s) => s.canUndo);
+  const canRedo = useEditorStore((s) => s.canRedo);
+  const undo = useEditorStore((s) => s.undo);
+  const redo = useEditorStore((s) => s.redo);
+  const addFrame = useEditorStore((s) => s.addFrame);
+  const addRect = useEditorStore((s) => s.addRect);
+  const addText = useEditorStore((s) => s.addText);
+  const deleteSelection = useEditorStore((s) => s.deleteSelection);
+  const groupSelection = useEditorStore((s) => s.groupSelection);
+  const duplicateSelection = useEditorStore((s) => s.duplicateSelection);
+  const copySelection = useEditorStore((s) => s.copySelection);
+  const pasteClipboard = useEditorStore((s) => s.pasteClipboard);
+  const setLocked = useEditorStore((s) => s.setLocked);
+  const setVisible = useEditorStore((s) => s.setVisible);
+  const newDocument = useEditorStore((s) => s.newDocument);
+  const exportJson = useEditorStore((s) => s.exportJson);
+  const importJsonFile = useEditorStore((s) => s.importJsonFile);
+  const setDesignPreset = useEditorStore((s) => s.setDesignPreset);
+  const designWidth = useEditorStore((s) => s.document.designSize.width);
+  const designHeight = useEditorStore((s) => s.document.designSize.height);
+  const alignSelection = useEditorStore((s) => s.alignSelection);
+  const persist = useEditorStore((s) => s.persist);
+  const camera = useEditorStore((s) => s.camera);
+  const setCamera = useEditorStore((s) => s.setCamera);
 
   const [handoffOpen, setHandoffOpen] = useState(false);
 
   const presetId =
     DESIGN_PRESETS.find(
-      (p) =>
-        p.width === document.designSize.width &&
-        p.height === document.designSize.height
+      (p) => p.width === designWidth && p.height === designHeight
     )?.id ?? 'custom';
 
   const align = (mode: AlignMode) => () => alignSelection(mode);
@@ -217,7 +214,7 @@ export function Toolbar() {
         ))}
         {presetId === 'custom' && (
           <option value="custom">
-            自定义 {document.designSize.width}×{document.designSize.height}
+            自定义 {designWidth}×{designHeight}
           </option>
         )}
       </select>

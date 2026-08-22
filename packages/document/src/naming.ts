@@ -15,6 +15,7 @@ export const ROLE_KEY_PREFIX: Record<NodeRole, string> = {
   panel: 'pnl_',
   icon: 'icon_',
   progress: 'bar_',
+  dynamicValue: 'val_',
   tab: 'tab_',
   other: 'ui_',
 };
@@ -177,6 +178,106 @@ export function lintNodeIssues(doc: Document, nodeId: string): NamingIssue[] {
   return lintNaming(doc).filter((i) => i.nodeId === nodeId);
 }
 
+function lintSingleNode(node: SceneNode, keyOwners: Map<string, SceneNode>): NamingIssue[] {
+  const issues: NamingIssue[] = [];
+
+  if (!node.name.trim()) {
+    issues.push({
+      severity: 'error',
+      nodeId: node.id,
+      nodeName: node.name,
+      code: 'empty_name',
+      message: '显示名为空',
+      suggestion: node.type,
+    });
+  }
+
+  const key = node.componentKey?.trim();
+  const interactive =
+    node.role !== 'none' && node.role !== 'label' && node.role !== 'image';
+
+  if (!key) {
+    if (interactive || node.role === 'button' || node.role === 'input') {
+      issues.push({
+        severity: 'warn',
+        nodeId: node.id,
+        nodeName: node.name,
+        code: 'missing_key',
+        message: `角色 ${node.role} 建议填写 componentKey`,
+        suggestion: suggestComponentKey(node.role, node.name || node.type),
+      });
+    }
+    return issues;
+  }
+
+  if (/[\u4e00-\u9fff]/.test(key)) {
+    issues.push({
+      severity: 'error',
+      nodeId: node.id,
+      nodeName: node.name,
+      code: 'cjk_key',
+      message: 'componentKey 不要使用中文',
+      suggestion: suggestComponentKey(node.role, node.name || node.type),
+    });
+  } else if (!isValidComponentKey(key)) {
+    issues.push({
+      severity: 'error',
+      nodeId: node.id,
+      nodeName: node.name,
+      code: 'invalid_key',
+      message: 'componentKey 须为小写字母开头，仅含 a-z 0-9 _',
+      suggestion: suggestComponentKey(node.role, node.name || key),
+    });
+  }
+
+  const prev = keyOwners.get(key);
+  if (prev && prev.id !== node.id) {
+    issues.push({
+      severity: 'error',
+      nodeId: node.id,
+      nodeName: node.name,
+      code: 'duplicate_key',
+      message: `componentKey 与「${prev.name}」重复：${key}`,
+      suggestion: suggestComponentKey(
+        node.role,
+        node.name || node.type,
+        new Set(keyOwners.keys())
+      ),
+    });
+  }
+
+  const prefix = ROLE_KEY_PREFIX[node.role];
+  if (prefix && node.role !== 'none' && !key.startsWith(prefix)) {
+    issues.push({
+      severity: 'warn',
+      nodeId: node.id,
+      nodeName: node.name,
+      code: 'prefix_mismatch',
+      message: `角色 ${node.role} 建议前缀 ${prefix}`,
+      suggestion: suggestComponentKey(node.role, node.name || key),
+    });
+  }
+
+  return issues;
+}
+
+/** Lint one node without scanning the full tree for non-duplicate rules. */
+export function lintNodeIssuesForNode(doc: Document, nodeId: string): NamingIssue[] {
+  const page = getActivePage(doc);
+  if (!page) return [];
+  const found = flattenNodes(page.root).find((n) => n.id === nodeId);
+  if (!found) return [];
+
+  const keyOwners = new Map<string, SceneNode>();
+  for (const node of flattenNodes(page.root)) {
+    const key = node.componentKey?.trim();
+    if (!key) continue;
+    if (!keyOwners.has(key)) keyOwners.set(key, node);
+  }
+
+  return lintSingleNode(found, keyOwners);
+}
+
 export function namingConventionMarkdown(): string {
   return `# 组件命名规范
 
@@ -193,6 +294,7 @@ export function namingConventionMarkdown(): string {
 | panel | pnl_ | pnl_dialog |
 | icon | icon_ | icon_gold |
 | progress | bar_ | bar_hp |
+| dynamicValue | val_ | val_score |
 | tab | tab_ | tab_shop |
 | other | ui_ | ui_badge |
 

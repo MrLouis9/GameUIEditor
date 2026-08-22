@@ -84,6 +84,7 @@ export function PreviewPage() {
         getTool: () => 'select',
         getSelectedIds: () => [],
         getDocument: () => doc,
+        getDocumentForRender: () => doc,
       },
       { interactive: false }
     );

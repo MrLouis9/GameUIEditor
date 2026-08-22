@@ -136,21 +136,26 @@ function renderNodeHtml(node: SceneNode, isRoot: boolean): string {
   } else if (node.type === 'text') {
     const tn = node as TextNode;
     const align = tn.align === 'center' ? 'center' : tn.align === 'right' ? 'right' : 'left';
+    const fontSize = tn.fontSize || 28;
+    const lineHeight =
+      tn.lineHeight > 0 ? tn.lineHeight : Math.round(fontSize * 1.25);
     styleParts.push(
       `color:${tn.color || '#fff'}`,
-      `font-size:${tn.fontSize || 28}px`,
+      `font-size:${fontSize}px`,
       `font-family:${esc(tn.fontFamily || 'sans-serif')}`,
       `font-weight:${tn.fontWeight || 'normal'}`,
       `font-style:${tn.fontStyle || 'normal'}`,
-      `text-align:${align}`,
+      `line-height:${lineHeight}px`,
+      `letter-spacing:${tn.letterSpacing || 0}px`,
       'white-space:pre-wrap',
       'word-break:break-word',
       'display:flex',
+      'flex-direction:column',
       tn.verticalAlign === 'middle'
-        ? 'align-items:center'
+        ? 'justify-content:center'
         : tn.verticalAlign === 'bottom'
-          ? 'align-items:flex-end'
-          : 'align-items:flex-start'
+          ? 'justify-content:flex-end'
+          : 'justify-content:flex-start'
     );
     const shadow = normalizeTextShadow(tn.shadow);
     if (shadow.enabled) {
@@ -158,7 +163,7 @@ function renderNodeHtml(node: SceneNode, isRoot: boolean): string {
         `text-shadow:${shadow.offsetX}px ${shadow.offsetY}px ${shadow.blur}px ${hexWithAlpha(shadow.color, shadow.alpha)}`
       );
     }
-    inner = esc(tn.content ?? '');
+    inner = `<span style="display:block;width:100%;text-align:${align}">${esc(tn.content ?? '')}</span>`;
   }
 
   const kids = (node.children ?? []).map((c) => renderNodeHtml(c, false)).join('');
