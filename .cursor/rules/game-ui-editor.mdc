@@ -1,0 +1,41 @@
+---
+description: GameUIEditer core architecture and product constraints
+alwaysApply: true
+---
+
+# GameUIEditer
+
+Figma-like game UI editor for art teams. Output is a structured document JSON (Figma-file equivalent) for AI / PixiJS / React consumers.
+
+## Stack (locked)
+
+- Monorepo: `apps/editor`, `packages/atlas`, `packages/document`
+- React 19 + Vite + TypeScript + Tailwind 4
+- **PixiJS v8** for canvas (matches AI Studio game runtime)
+- React for chrome only (panels, toolbar, dialogs)
+- Zustand for editor UI state; Document is source of truth
+- Local-first (localStorage / file export); cloud share later
+
+## Architecture
+
+- `packages/document`: node tree, schema, commands, undo/redo, serialize
+- `packages/atlas`: sprite pack/trim/nine-slice/import-export (from Sprite sheet packer)
+- `apps/editor`: UI shell + Pixi scene sync
+- Mutations go through **Commands** only (never mutate document ad-hoc in components)
+- Export contract: `GET`-style document JSON + atlas assets (Figma REST API analog)
+
+## Design canvas
+
+- Default design size: **1280×720**
+- Presets: landscape 1280×720, portrait 720×1280
+- Adaptive aspect **16:9 → 21:9** (portrait: height adaptive up to **720×1560**)
+- Nine-slice sprites must render via Pixi nine-slice (or equivalent)
+
+## Rules
+
+- Keep modules decoupled; no God stores that mix atlas + canvas + network
+- No hardcoded user-facing Chinese/English strings without a key map when i18n lands; P0 may use Chinese labels
+- Do not rewrite `Sprite sheet packer/` in place — evolve `packages/atlas`
+- Prefer production-ready code; no TODO placeholders in shipped paths
+---
+

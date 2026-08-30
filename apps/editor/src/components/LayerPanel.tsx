@@ -1,4 +1,4 @@
-import type { SceneNode } from '@game-ui/document';
+import type { Document, SceneNode } from '@game-ui/document';
 import {
   getActivePage,
   findNodeInDocument,
@@ -21,12 +21,17 @@ import {
   Type,
   Unlock,
 } from 'lucide-react';
-import { memo, useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useEditorStore } from '../store/editorStore';
 import { confirmDialog, toast } from '../ui/feedback';
 import { AiHandoffModal } from './AiHandoffModal';
 
 type DropMode = 'before' | 'after' | 'inside' | null;
+
+/** Default: every page / interface root starts collapsed. */
+function buildDefaultCollapsedIds(doc: Document): Set<string> {
+  return new Set(doc.pages.map((p) => p.root.id));
+}
 
 export function LayerPanel() {
   const document = useEditorStore((s) => s.document);
@@ -50,12 +55,23 @@ export function LayerPanel() {
   const [dropMode, setDropMode] = useState<DropMode>(null);
   const [handoffOpen, setHandoffOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  /** Ids whose children are collapsed (default: all expanded). */
-  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(() => new Set());
+  /** Ids whose children are collapsed. */
+  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(() =>
+    buildDefaultCollapsedIds(document)
+  );
   const listRef = useRef<HTMLDivElement>(null);
+  const pagesSignature = document.pages.map((p) => p.id).join('\0');
+  const pagesSignatureRef = useRef(pagesSignature);
 
   const activePage = getActivePage(document);
   const pages = document.pages;
+
+  // New project / import / page add-remove → collapse all page roots again.
+  useEffect(() => {
+    if (pagesSignatureRef.current === pagesSignature) return;
+    pagesSignatureRef.current = pagesSignature;
+    setCollapsedIds(buildDefaultCollapsedIds(document));
+  }, [pagesSignature, document]);
 
   const toggleCollapsed = useCallback((id: string) => {
     setCollapsedIds((prev) => {
@@ -173,7 +189,7 @@ export function LayerPanel() {
               setDragOverId(null);
               setDropMode(null);
             }}
-            onDropRow={() => {
+            onDropRow={(_targetId, _mode) => {
               setDragOverId(null);
               setDropMode(null);
             }}
@@ -216,7 +232,7 @@ export function LayerPanel() {
   );
 }
 
-function LayerRowInner({
+function LayerRow({
   node,
   depth,
   selectedIds,
@@ -364,6 +380,7 @@ function LayerRowInner({
         style={{ paddingLeft: 4 + depth * 12 }}
         onClick={(e) => {
           if (editing) return;
+          e.stopPropagation();
           if (isRoot) onActivateRoot?.();
           if (e.shiftKey) {
             onSelectRange(node.id);
@@ -398,8 +415,11 @@ function LayerRowInner({
 
         <button
           type="button"
-          className="w-4 text-slate-500"
+          className="relative z-10 w-4 shrink-0 text-slate-500 hover:text-slate-300"
+          aria-expanded={open}
+          aria-label={open ? '收起子图层' : '展开子图层'}
           onClick={(e) => {
+            e.preventDefault();
             e.stopPropagation();
             if (hasChildren) onToggleCollapsed(node.id);
           }}
@@ -537,38 +557,6 @@ function LayerRowInner({
     </div>
   );
 }
-
-type LayerRowProps = Parameters<typeof LayerRowInner>[0];
-
-function layerRowPropsEqual(prev: LayerRowProps, next: LayerRowProps): boolean {
-  if (prev.node.id !== next.node.id) return false;
-  if (prev.node.name !== next.node.name) return false;
-  if (prev.node.visible !== next.node.visible) return false;
-  if (prev.node.locked !== next.node.locked) return false;
-  if (prev.depth !== next.depth) return false;
-  if (prev.isRoot !== next.isRoot) return false;
-  if (prev.isActiveRoot !== next.isActiveRoot) return false;
-  if ((prev.editingId === prev.node.id) !== (next.editingId === next.node.id)) {
-    return false;
-  }
-  const prevSelected = prev.selectedIds.includes(prev.node.id);
-  const nextSelected = next.selectedIds.includes(next.node.id);
-  if (prevSelected !== nextSelected) return false;
-  const prevOpen = !prev.collapsedIds.has(prev.node.id);
-  const nextOpen = !next.collapsedIds.has(next.node.id);
-  if (prevOpen !== nextOpen) return false;
-  if (prev.dragOverId === prev.node.id || next.dragOverId === next.node.id) {
-    if (prev.dragOverId !== next.dragOverId || prev.dropMode !== next.dropMode) {
-      return false;
-    }
-  }
-  const prevKids = prev.node.children?.length ?? 0;
-  const nextKids = next.node.children?.length ?? 0;
-  if (prevKids !== nextKids) return false;
-  return true;
-}
-
-const LayerRow = memo(LayerRowInner, layerRowPropsEqual);
 
 function TypeBadge({ node }: { node: SceneNode }) {
   const mode = node.layout?.mode ?? 'none';

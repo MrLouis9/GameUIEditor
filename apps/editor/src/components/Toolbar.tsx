@@ -23,6 +23,7 @@ import {
   Package,
   Redo2,
   Save,
+  FolderInput,
   Square,
   Trash2,
   Type,
@@ -59,6 +60,12 @@ export function Toolbar() {
   const designHeight = useEditorStore((s) => s.document.designSize.height);
   const alignSelection = useEditorStore((s) => s.alignSelection);
   const persist = useEditorStore((s) => s.persist);
+  const saveActivePrefabToGameProject = useEditorStore(
+    (s) => s.saveActivePrefabToGameProject
+  );
+  const importAllPrefabsFromGameProject = useEditorStore(
+    (s) => s.importAllPrefabsFromGameProject
+  );
   const camera = useEditorStore((s) => s.camera);
   const setCamera = useEditorStore((s) => s.setCamera);
 
@@ -255,6 +262,64 @@ export function Toolbar() {
             }}
           />
         </label>
+        <button
+          type="button"
+          title="打开已绑定的游戏 Prefab 文件夹，导入其中全部界面"
+          onClick={() => {
+            void (async () => {
+              const ok = await confirmDialog({
+                title: '从游戏工程导入全部 Prefab',
+                message:
+                  '将读取已绑定的游戏 public/ui/prefabs（若未绑定会弹出选文件夹），把其中所有 .prefab.gameui.json 导入本工程：同名界面替换，新界面追加。图集像素请另「打开图集」。确定？',
+                confirmLabel: '导入全部',
+              });
+              if (!ok) return;
+              persist();
+              const result = await importAllPrefabsFromGameProject();
+              if (!result.ok) {
+                toast(result.error || '导入失败', 'error');
+                return;
+              }
+              toast(
+                `已从「${result.dirName}」导入 ${result.imported} 个界面` +
+                  (result.replaced ? `（替换 ${result.replaced}` : '') +
+                  (result.added
+                    ? `${result.replaced ? '，' : '（'}新增 ${result.added}`
+                    : '') +
+                  (result.replaced || result.added ? '）' : ''),
+                'success'
+              );
+            })();
+          }}
+          className="inline-flex h-8 items-center gap-1.5 rounded border border-emerald-700/60 bg-emerald-950/40 px-2.5 text-[11px] font-medium text-emerald-200 hover:bg-emerald-900/50"
+        >
+          <FolderInput size={14} />
+          从游戏导入
+        </button>
+        <button
+          type="button"
+          title="将当前界面 Prefab 保存到已绑定的游戏工程目录（所见即所得）"
+          onClick={() => {
+            void (async () => {
+              persist();
+              const result = await saveActivePrefabToGameProject();
+              if (!result.ok) {
+                toast(result.error || '保存失败', 'error');
+                return;
+              }
+              toast(
+                result.method === 'directory'
+                  ? `已写入游戏工程：${result.filename}`
+                  : `已下载 ${result.filename}，请放到游戏 public/ui/prefabs`,
+                'success'
+              );
+            })();
+          }}
+          className="inline-flex h-8 items-center gap-1.5 rounded border border-amber-700/60 bg-amber-950/40 px-2.5 text-[11px] font-medium text-amber-200 hover:bg-amber-900/50"
+        >
+          <Save size={14} />
+          保存到游戏
+        </button>
         <button
           type="button"
           onClick={() => {

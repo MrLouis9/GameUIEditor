@@ -74,7 +74,7 @@ export function findAssetByNameInAtlas(
   return doc.assets.find((a) => a.atlasId === atlasId && a.name === key);
 }
 
-/** Remap sprite assetId / stateAssets from one asset id to another across all pages. */
+/** Remap sprite assetId / stateAssets / iconAssetId from one asset id to another across all pages. */
 export function remapAssetReferences(
   doc: Document,
   fromId: string,
@@ -83,6 +83,7 @@ export function remapAssetReferences(
   if (fromId === toId) return;
   for (const page of doc.pages) {
     walkNodes(page.root, (node) => {
+      if (node.iconAssetId === fromId) node.iconAssetId = toId;
       if (node.type !== 'sprite') return;
       if (node.assetId === fromId) node.assetId = toId;
       if (node.stateAssets) {
@@ -100,6 +101,7 @@ function countAssetRefs(doc: Document, assetId: string): number {
   let n = 0;
   for (const page of doc.pages) {
     walkNodes(page.root, (node) => {
+      if (node.iconAssetId === assetId) n += 1;
       if (node.type !== 'sprite') return;
       if (node.assetId === assetId) n += 1;
       if (node.stateAssets) {
@@ -289,6 +291,20 @@ export function updateAsset(
   if (patch.height !== undefined) asset.height = patch.height;
   if ('nineSlice' in patch) {
     asset.nineSlice = patch.nineSlice;
+    // Keep placed sprites in sync so canvas rebuilds NineSlice (not plain Sprite).
+    for (const page of doc.pages) {
+      walkNodes(page.root, (node) => {
+        if (node.type === 'sprite') {
+          const uses =
+            node.assetId === assetId ||
+            (node.stateAssets &&
+              Object.values(node.stateAssets).includes(assetId));
+          if (!uses) return;
+          if (patch.nineSlice) node.nineSlice = { ...patch.nineSlice };
+          else delete node.nineSlice;
+        }
+      });
+    }
   }
   if (patch.atlasId !== undefined && doc.atlases.some((a) => a.id === patch.atlasId)) {
     asset.atlasId = patch.atlasId;
@@ -420,6 +436,30 @@ export function updateTextNode(
   Object.assign(node, rest);
 }
 
+/**
+ * Set / clear background icon sprite on frame / rect / group.
+ * Optionally promotes role `none` → `icon` when assigning.
+ */
+export function setNodeIconAsset(
+  doc: Document,
+  id: string,
+  assetId: string | undefined
+): void {
+  const found = findNodeInDocument(doc, id);
+  if (!found || found.node.locked) return;
+  const node = found.node;
+  if (node.type !== 'frame' && node.type !== 'group' && node.type !== 'rect') {
+    return;
+  }
+  if (!assetId) {
+    delete node.iconAssetId;
+    return;
+  }
+  if (!doc.assets.some((a) => a.id === assetId)) return;
+  node.iconAssetId = assetId;
+  if (node.role === 'none') node.role = 'icon';
+}
+
 /** Patch sprite state→asset map (toggle off/on, tab unselected/selected). */
 export function updateSpriteStateAssets(
   doc: Document,
@@ -430,6 +470,47 @@ export function updateSpriteStateAssets(
   if (!found || found.node.type !== 'sprite' || found.node.locked) return;
   found.node.stateAssets = mergeStateAssets(found.node.stateAssets, patch);
   if (patch.normal) found.node.assetId = patch.normal;
+}
+
+/**
+ * Swap sprite art. Default: current `activeState` (or normal).
+ * For `normal`, also updates `assetId` and copies nine-slice from asset.
+ * Keeps node transform (size/position).
+ */
+export function setSpriteAsset(
+  doc: Document,
+  id: string,
+  assetId: string,
+  forState?: NodeUiState
+): void {
+  const found = findNodeInDocument(doc, id);
+  if (!found || found.node.type !== 'sprite' || found.node.locked) return;
+  const asset = doc.assets.find((a) => a.id === assetId);
+  if (!asset) return;
+  const state: NodeUiState =
+    forState ??
+    (found.node.activeState && found.node.activeState !== 'normal'
+      ? found.node.activeState
+      : 'normal');
+
+  if (state === 'normal') {
+    found.node.assetId = assetId;
+    found.node.stateAssets = mergeStateAssets(found.node.stateAssets, {
+      normal: assetId,
+    });
+    if (asset.nineSlice) {
+      found.node.nineSlice = { ...asset.nineSlice };
+    } else {
+      delete found.node.nineSlice;
+    }
+  } else {
+    found.node.stateAssets = mergeStateAssets(found.node.stateAssets, {
+      [state]: assetId,
+    } as StateAssets);
+    if (!found.node.states.includes(state)) {
+      found.node.states = [...found.node.states, state];
+    }
+  }
 }
 
 /**

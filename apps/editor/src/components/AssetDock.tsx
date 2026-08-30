@@ -589,9 +589,49 @@ function AssetEditModal({
   }, [asset]);
 
   return (
-    <Modal title="编辑精灵 · 九宫设置" onClose={onClose} wide>
-      <div className="grid gap-4 md:grid-cols-[1fr_220px]">
-        <div className="min-h-[240px] rounded-lg border border-slate-800 bg-slate-950/80 p-3">
+    <Modal
+      title="编辑精灵 · 九宫设置"
+      onClose={onClose}
+      size="xl"
+      resizable
+      defaultWidth={980}
+      defaultHeight={720}
+      minWidth={560}
+      minHeight={420}
+      footer={
+        <div className="flex items-center justify-between gap-2 text-[11px] text-slate-500">
+          <span>
+            绿线拖拽设边距 · 滚轮缩放 · 拖窗口边角改大小 · {asset.width}×
+            {asset.height}
+          </span>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              className="rounded-md px-3 py-1.5 text-slate-400 hover:bg-slate-800"
+              onClick={onClose}
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              className="rounded-md bg-sky-600 px-3 py-1.5 text-white hover:bg-sky-500"
+              onClick={() => {
+                const nineSlice: NineSlice | undefined =
+                  !top && !right && !bottom && !left
+                    ? undefined
+                    : { top, right, bottom, left };
+                updateAsset(asset.id, { name, atlasId, nineSlice });
+                onClose();
+              }}
+            >
+              保存
+            </button>
+          </div>
+        </div>
+      }
+    >
+      <div className="grid h-full min-h-0 flex-1 gap-4 md:grid-cols-[minmax(0,1fr)_220px]">
+        <div className="flex min-h-[280px] min-w-0 flex-col rounded-lg border border-slate-800 bg-slate-950/80 p-3 md:min-h-0">
           <NineSliceGuide
             dataUrl={asset.dataUrl}
             width={asset.width}
@@ -607,12 +647,9 @@ function AssetEditModal({
               setLeft(n.left);
             }}
           />
-          <p className="mt-2 text-[11px] text-slate-500">
-            拖拽绿色虚线调整九宫边距 · {asset.width}×{asset.height}
-          </p>
         </div>
 
-        <div className="space-y-3 text-xs text-slate-400">
+        <div className="space-y-3 overflow-auto text-xs text-slate-400">
           <label className="block space-y-1">
             <span>名称</span>
             <input
@@ -644,7 +681,10 @@ function AssetEditModal({
                 ['左', left, setLeft],
               ] as const
             ).map(([label, value, set]) => (
-              <label key={label} className="flex items-center gap-1.5 rounded-md bg-slate-950 px-2 py-1.5">
+              <label
+                key={label}
+                className="flex items-center gap-1.5 rounded-md bg-slate-950 px-2 py-1.5"
+              >
                 <ScrubLabel
                   className="w-4 text-slate-500"
                   value={value}
@@ -658,7 +698,9 @@ function AssetEditModal({
                   type="number"
                   min={0}
                   value={value}
-                  onChange={(e) => set(Math.max(0, Number(e.target.value) || 0))}
+                  onChange={(e) =>
+                    set(Math.max(0, Number(e.target.value) || 0))
+                  }
                   className="num-field min-w-0 flex-1 bg-transparent text-slate-100 outline-none"
                 />
               </label>
@@ -677,29 +719,6 @@ function AssetEditModal({
               }}
             />
           </label>
-          <div className="flex justify-end gap-2 pt-2">
-            <button
-              type="button"
-              className="rounded-md px-3 py-1.5 text-slate-400 hover:bg-slate-800"
-              onClick={onClose}
-            >
-              取消
-            </button>
-            <button
-              type="button"
-              className="rounded-md bg-sky-600 px-3 py-1.5 text-white hover:bg-sky-500"
-              onClick={() => {
-                const nineSlice: NineSlice | undefined =
-                  !top && !right && !bottom && !left
-                    ? undefined
-                    : { top, right, bottom, left };
-                updateAsset(asset.id, { name, atlasId, nineSlice });
-                onClose();
-              }}
-            >
-              保存
-            </button>
-          </div>
         </div>
       </div>
     </Modal>

@@ -104,6 +104,7 @@ export function buildFrameNameByAssetId(assetsInAtlas: Asset[]): Map<string, str
 function collectUsedAssetIds(root: SceneNode): Set<string> {
   const ids = new Set<string>();
   walkNodes(root, (node) => {
+    if (node.iconAssetId) ids.add(node.iconAssetId);
     if (node.type !== 'sprite') return;
     const sprite = node as SpriteNode;
     if (sprite.assetId) ids.add(sprite.assetId);
@@ -244,6 +245,10 @@ function remapSpriteAssetIds(
 ): void {
   if (map.size === 0) return;
   walkNodes(root, (node) => {
+    if (node.iconAssetId) {
+      const iconNext = map.get(node.iconAssetId);
+      if (iconNext) node.iconAssetId = iconNext;
+    }
     if (node.type !== 'sprite') return;
     const sprite = node as SpriteNode;
     const next = map.get(sprite.assetId);

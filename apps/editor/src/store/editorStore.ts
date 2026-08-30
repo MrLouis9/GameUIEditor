@@ -27,6 +27,7 @@ import {
   SceneNode,
 } from '@game-ui/document';
 import { debouncedStorageSet, flushDebouncedStorage } from '../utils/persist';
+import { savePrefabJsonToGameProject, readAllPrefabsFromGameProject } from '../pages/gameProjectTarget';
 
 const STORAGE_KEY = 'game-ui-editer:document:v1';
 
@@ -232,6 +233,10 @@ interface EditorState {
     id: string,
     patch: import('@game-ui/document').StateAssets
   ) => void;
+  /** Swap primary sprite art; canvas updates via document sync. */
+  setSpriteAsset: (id: string, assetId: string) => void;
+  /** Background / icon sprite on frame / rect / group. */
+  setNodeIconAsset: (id: string, assetId: string | undefined) => void;
   setNodeActiveState: (
     id: string,
     state: import('@game-ui/document').NodeUiState
@@ -247,9 +252,31 @@ interface EditorState {
   exportJson: () => void;
   /** Active page only — layout + atlas refs, no pixels (gameui.prefab). */
   exportActivePrefab: () => void;
+  /** Write prefab into configured game project folder (File System Access / download). */
+  saveActivePrefabToGameProject: () => Promise<{
+    ok: boolean;
+    method?: 'directory' | 'download';
+    filename?: string;
+    error?: string;
+  }>;
   importJsonFile: (file: File) => Promise<void>;
   /** Merge / replace current screen from a gameui.prefab file. */
   importPrefabFile: (file: File, mode?: ApplyPrefabMode) => Promise<void>;
+  /**
+   * Open bound (or pick) game prefabs folder and import every Prefab into this project.
+   * Same-name pages are replaced; others are added. Single undo step.
+   */
+  importAllPrefabsFromGameProject: (options?: {
+    forcePick?: boolean;
+  }) => Promise<{
+    ok: boolean;
+    imported?: number;
+    replaced?: number;
+    added?: number;
+    skipped?: number;
+    dirName?: string;
+    error?: string;
+  }>;
   newDocument: () => void;
   setRightPanel: (panel: 'assets' | 'atlas') => void;
 }
@@ -718,6 +745,14 @@ export const useEditorStore = create<EditorState>((set, get) => {
       history.update((doc) => commands.updateSpriteStateAssets(doc, id, patch));
     },
 
+    setSpriteAsset: (id, assetId) => {
+      history.update((doc) => commands.setSpriteAsset(doc, id, assetId));
+    },
+
+    setNodeIconAsset: (id, assetId) => {
+      history.update((doc) => commands.setNodeIconAsset(doc, id, assetId));
+    },
+
     setNodeActiveState: (id, state) => {
       history.update((doc) => commands.setNodeActiveState(doc, id, state));
     },
@@ -773,6 +808,34 @@ export const useEditorStore = create<EditorState>((set, get) => {
       downloadJson(`${safe}.prefab.gameui.json`, serializePrefabJson(prefab));
     },
 
+    saveActivePrefabToGameProject: async () => {
+      try {
+        const prefab = buildPrefabFromDocument(history.document);
+        const safe =
+          (prefab.name || 'screen')
+            .replace(/[\\/:*?"<>|]+/g, '_')
+            .trim() || 'screen';
+        const filename = `${safe}.prefab.gameui.json`;
+        const result = await savePrefabJsonToGameProject(
+          filename,
+          serializePrefabJson(prefab)
+        );
+        if (!result.ok) {
+          return { ok: false, error: 'error' in result ? result.error : '保存失败' };
+        }
+        return {
+          ok: true,
+          method: result.method,
+          filename: result.filename,
+        };
+      } catch (err) {
+        return {
+          ok: false,
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
+    },
+
     importJsonFile: async (file) => {
       const text = await file.text();
       const raw = JSON.parse(text) as unknown;
@@ -796,6 +859,117 @@ export const useEditorStore = create<EditorState>((set, get) => {
         applyPrefabToDocument(doc, prefab, mode);
       });
       set({ selectedIds: [] });
+    },
+
+    importAllPrefabsFromGameProject: async (options) => {
+      const read = await readAllPrefabsFromGameProject({
+        forcePick: options?.forcePick,
+      });
+      if (!read.ok) {
+        return { ok: false, error: read.error };
+      }
+      if (!read.files.length) {
+        return {
+          ok: false,
+          error: `文件夹「${read.dirName}」中未找到 Prefab（.prefab.gameui.json）`,
+          dirName: read.dirName,
+        };
+      }
+
+      let imported = 0;
+      let replaced = 0;
+      let added = 0;
+      let skipped = 0;
+      const errors: string[] = [];
+
+      history.update((doc) => {
+        for (const entry of read.files) {
+          let raw: unknown;
+          try {
+            raw = JSON.parse(entry.text);
+          } catch {
+            skipped += 1;
+            continue;
+          }
+          if (!isPrefabFile(raw)) {
+            skipped += 1;
+            continue;
+          }
+          try {
+            const prefab = parsePrefabJson(entry.text);
+            const matchName = (prefab.name || prefab.page?.root?.name || '')
+              .trim()
+              .toLowerCase();
+            const existing = matchName
+              ? doc.pages.find(
+                  (p) =>
+                    p.name.trim().toLowerCase() === matchName ||
+                    p.root.name.trim().toLowerCase() === matchName
+                )
+              : undefined;
+
+            if (existing) {
+              doc.activePageId = existing.id;
+              applyPrefabToDocument(doc, prefab, 'replace-active');
+              replaced += 1;
+            } else {
+              applyPrefabToDocument(doc, prefab, 'add-page');
+              added += 1;
+            }
+            imported += 1;
+          } catch (err) {
+            skipped += 1;
+            errors.push(
+              `${entry.filename}: ${err instanceof Error ? err.message : String(err)}`
+            );
+          }
+        }
+
+        // Drop a lone empty default page left behind after imports
+        if (imported > 0 && doc.pages.length > 1) {
+          const keepIds = new Set(
+            doc.pages
+              .filter((p) => {
+                const n = (p.name || p.root.name || '').trim();
+                const emptyKids = !(p.root.children && p.root.children.length);
+                return !(
+                  emptyKids &&
+                  (n === '未命名界面' || n === 'Frame' || n === '')
+                );
+              })
+              .map((p) => p.id)
+          );
+          if (keepIds.size > 0 && keepIds.size < doc.pages.length) {
+            doc.pages = doc.pages.filter((p) => keepIds.has(p.id));
+            if (!doc.pages.some((p) => p.id === doc.activePageId)) {
+              doc.activePageId = doc.pages[0]!.id;
+            }
+          }
+        }
+      });
+
+      set({ selectedIds: [] });
+
+      if (imported === 0) {
+        return {
+          ok: false,
+          error:
+            errors[0] ||
+            `文件夹「${read.dirName}」中没有可解析的 gameui.prefab 文件`,
+          dirName: read.dirName,
+          skipped,
+        };
+      }
+
+      return {
+        ok: true,
+        imported,
+        replaced,
+        added,
+        skipped,
+        dirName: read.dirName,
+        ...(errors.length ? { error: errors.slice(0, 3).join('；') } : {}),
+      };
     },
 
     newDocument: () => {

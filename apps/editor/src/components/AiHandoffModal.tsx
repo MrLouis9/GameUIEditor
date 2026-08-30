@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
-import { Copy, Download, Eye, FileJson, Package, Upload } from 'lucide-react';
+import { Copy, Download, Eye, FileJson, FolderInput, FolderOpen, Package, Save, Upload } from 'lucide-react';
 import {
   lintNaming,
   getActivePage,
@@ -14,8 +14,19 @@ import {
   downloadAiHandoffZip,
   downloadDocumentJson,
 } from '../pages/aiHandoff';
+import {
+  getPrefabPathHint,
+  setPrefabPathHint,
+  getAtlasPathHint,
+  setAtlasPathHint,
+  pickPrefabDirectory,
+  pickAtlasDirectory,
+  supportsDirectoryPicker,
+  DEFAULT_PREFAB_PATH_HINT,
+  DEFAULT_ATLAS_PATH_HINT,
+} from '../pages/gameProjectTarget';
 import { useEditorStore } from '../store/editorStore';
-import { toast } from '../ui/feedback';
+import { toast, confirmDialog } from '../ui/feedback';
 
 type Props = {
   onClose: () => void;
@@ -26,12 +37,20 @@ export function AiHandoffModal({ onClose }: Props) {
   const select = useEditorStore((s) => s.select);
   const updateNodeSemantics = useEditorStore((s) => s.updateNodeSemantics);
   const exportActivePrefab = useEditorStore((s) => s.exportActivePrefab);
+  const saveActivePrefabToGameProject = useEditorStore(
+    (s) => s.saveActivePrefabToGameProject
+  );
   const importPrefabFile = useEditorStore((s) => s.importPrefabFile);
+  const importAllPrefabsFromGameProject = useEditorStore(
+    (s) => s.importAllPrefabsFromGameProject
+  );
   const prefabInputRef = useRef<HTMLInputElement>(null);
   const prefabImportMode = useRef<'replace-active' | 'add-page'>('replace-active');
 
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [prefabHint, setPrefabHint] = useState(getPrefabPathHint);
+  const [atlasHint, setAtlasHint] = useState(getAtlasPathHint);
 
   const openPrefabPicker = (mode: 'replace-active' | 'add-page') => {
     prefabImportMode.current = mode;
@@ -82,6 +101,37 @@ export function AiHandoffModal({ onClose }: Props) {
 
   const jumpToIssue = (issue: NamingIssue) => {
     select([issue.nodeId]);
+  };
+
+  const importFromGameFolder = async (forcePick: boolean) => {
+    const ok = await confirmDialog({
+      title: '从游戏工程导入全部 Prefab',
+      message: forcePick
+        ? '将打开文件夹选择器。选中游戏 public/ui/prefabs 后，会把其中所有 .prefab.gameui.json 导入本工程：同名界面替换，新界面追加。图集像素需另「打开图集」。确定？'
+        : `将读取已绑定（或提示）的 Prefab 目录中的全部界面文件并导入本工程：同名界面替换，新界面追加。目录提示：${prefabHint}。图集像素需另「打开图集」。确定？`,
+      confirmLabel: '导入全部',
+    });
+    if (!ok) return;
+    setBusy(true);
+    try {
+      const result = await importAllPrefabsFromGameProject({ forcePick });
+      if (!result.ok) {
+        toast(result.error || '导入失败', 'error');
+        return;
+      }
+      const parts = [
+        `已从「${result.dirName}」导入 ${result.imported} 个界面`,
+        result.replaced ? `替换 ${result.replaced}` : '',
+        result.added ? `新增 ${result.added}` : '',
+        result.skipped ? `跳过 ${result.skipped}` : '',
+      ].filter(Boolean);
+      toast(parts.join(' · '), 'success');
+      if (result.error) toast(result.error, 'warn');
+    } catch (err) {
+      toast(err instanceof Error ? err.message : '导入失败', 'error');
+    } finally {
+      setBusy(false);
+    }
   };
 
   const applySuggestion = (issue: NamingIssue) => {
@@ -137,7 +187,92 @@ export function AiHandoffModal({ onClose }: Props) {
             <code className="text-slate-300">assetId → frame → 图集 JSON</code>
             解析，勿改 id / frame 对应关系。改完 Prefab 后可再导入本编辑器继续改。
           </p>
+          <p className="text-[11px] leading-relaxed text-amber-200/80">
+            游戏运行时只读：
+            <code className="text-amber-100/90">public/ui/prefabs</code>
+            。优先使用「保存到游戏工程」实现所见即所得。
+          </p>
+          <div className="space-y-1.5 rounded border border-slate-800 bg-slate-950/40 px-2 py-2 text-[11px]">
+            <label className="block text-slate-400">
+              Prefab 目录提示
+              <input
+                className="mt-1 w-full rounded border border-slate-700 bg-slate-900 px-2 py-1 text-slate-200"
+                value={prefabHint}
+                onChange={(e) => {
+                  setPrefabHint(e.target.value);
+                  setPrefabPathHint(e.target.value);
+                }}
+                placeholder={DEFAULT_PREFAB_PATH_HINT}
+              />
+            </label>
+            <label className="block text-slate-400">
+              图集目录提示
+              <input
+                className="mt-1 w-full rounded border border-slate-700 bg-slate-900 px-2 py-1 text-slate-200"
+                value={atlasHint}
+                onChange={(e) => {
+                  setAtlasHint(e.target.value);
+                  setAtlasPathHint(e.target.value);
+                }}
+                placeholder={DEFAULT_ATLAS_PATH_HINT}
+              />
+            </label>
+            {supportsDirectoryPicker() && (
+              <div className="flex flex-wrap gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const h = await pickPrefabDirectory();
+                    if (h) {
+                      setPrefabHint(h.name);
+                      toast(`已绑定 Prefab 目录：${h.name}`, 'success');
+                    }
+                  }}
+                  className="inline-flex items-center gap-1 rounded border border-slate-600 px-2 py-1 text-slate-300 hover:bg-slate-800"
+                >
+                  <FolderOpen size={12} />
+                  选择 Prefab 文件夹
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const h = await pickAtlasDirectory();
+                    if (h) {
+                      setAtlasHint(h.name);
+                      toast(`已绑定图集目录：${h.name}`, 'success');
+                    }
+                  }}
+                  className="inline-flex items-center gap-1 rounded border border-slate-600 px-2 py-1 text-slate-300 hover:bg-slate-800"
+                >
+                  <FolderOpen size={12} />
+                  选择图集文件夹
+                </button>
+              </div>
+            )}
+          </div>
           <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                void (async () => {
+                  const result = await saveActivePrefabToGameProject();
+                  if (!result.ok) {
+                    toast(result.error || '保存失败', 'error');
+                    return;
+                  }
+                  toast(
+                    result.method === 'directory'
+                      ? `已写入游戏工程：${result.filename}（刷新游戏即可）`
+                      : `已下载 ${result.filename}，请放到 ${prefabHint}`,
+                    'success'
+                  );
+                })();
+              }}
+              className="inline-flex items-center gap-1.5 rounded bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-500"
+            >
+              <Save size={12} />
+              保存到游戏工程
+            </button>
             <button
               type="button"
               onClick={() => {
@@ -174,6 +309,29 @@ export function AiHandoffModal({ onClose }: Props) {
             >
               导入为新页面
             </button>
+            {supportsDirectoryPicker() && (
+              <>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void importFromGameFolder(false)}
+                  className="inline-flex items-center gap-1.5 rounded border border-amber-700/70 bg-amber-950/30 px-3 py-1.5 text-xs font-medium text-amber-100 hover:bg-amber-900/40 disabled:opacity-50"
+                >
+                  <FolderInput size={12} />
+                  {busy ? '导入中…' : '从游戏工程导入全部'}
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void importFromGameFolder(true)}
+                  className="inline-flex items-center gap-1.5 rounded border border-slate-700 px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-800 disabled:opacity-50"
+                  title="重新选择 Prefab 文件夹后再全部导入"
+                >
+                  <FolderOpen size={12} />
+                  选文件夹并导入全部
+                </button>
+              </>
+            )}
             <input
               ref={prefabInputRef}
               type="file"

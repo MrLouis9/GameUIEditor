@@ -212,6 +212,12 @@ export interface NodeBase {
   fill?: string;
   /** Fill alpha 0–1 (independent of node opacity) */
   fillOpacity: number;
+  /**
+   * Optional background / icon sprite (frame / rect / group).
+   * Renders stretched (or nine-slice from asset) behind children.
+   * Runtime: resolve like sprite `assetId` → atlas frame.
+   */
+  iconAssetId?: string;
   /** Corner radius in px (rects / frames) */
   cornerRadius: number;
   /** Stroke color (hex). Empty / undefined = no stroke when width is 0 */

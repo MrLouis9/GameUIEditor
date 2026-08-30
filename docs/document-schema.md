@@ -53,7 +53,7 @@
 
 ## Node common
 
-`transform`, `pivot`, `scaleX/Y`, `fill`, `fillOpacity`, `clipContent`, `layout`, `constraints`, optional `children`
+`transform`, `pivot`, `scaleX/Y`, `fill`, `fillOpacity`, `clipContent`, `layout`, `constraints`, optional `iconAssetId` (frame/rect/group 背景/图标精灵), optional `children`
 
 ### Transform & pivot (v6)
 

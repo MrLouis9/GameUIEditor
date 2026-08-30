@@ -1,0 +1,16 @@
+---
+description: PixiJS canvas sync rules for the editor
+globs: apps/editor/src/canvas/**/*.{ts,tsx}
+alwaysApply: false
+---
+
+# Pixi Canvas
+
+- Document → Pixi is one-way sync from store; pointer tools write via Commands
+- Map `node.id` → `DisplayObject` in a registry; destroy on delete
+- Selection handles can be React overlay or Pixi layer; keep hit-testing in Pixi
+- Use `NineSliceSprite` when `nineSlice` is set; else `Sprite`
+- Design frame is a clipped root sized to `document.designSize`
+- Pan/zoom the viewport camera; do not bake zoom into node transforms
+---
+

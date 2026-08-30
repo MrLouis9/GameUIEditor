@@ -1,0 +1,32 @@
+---
+description: Prefer exporting prefabs to the bound game project for WYSIWYG runtime.
+alwaysApply: true
+---
+
+# GameUIEditer → Game Project Export
+
+## Product contract
+
+Deliverable for games is **`kind: gameui.prefab`** (schemaVersion 7) + separate atlas PNG/JSON.
+Do not invent alternate export formats for 99HerosOnline.
+
+## Prefer game project save
+
+When the user asks to save / sync / update game UI:
+
+1. Use **「保存到游戏工程」** / `saveActivePrefabToGameProject` (File System Access directory handle).
+2. Default targets:
+   - Prefabs: `D:\MyProjects\WebProject\99HerosOnline\public\ui\prefabs`
+   - Atlas: `D:\MyProjects\WebProject\99HerosOnline\public\assets\UIAtlas` (`UIAtlas.png` / `UIAtlas.json`)
+3. Downloading Prefab alone is fallback only when directory binding is unavailable.
+
+## Atlas frame stability
+
+- Keep `assets[].frame` keys identical to atlas JSON `frames` keys.
+- Do not rename frames casually; runtime resolves `assetId → frame → UV`.
+- Prefab atlases refs should use `file: "UIAtlas.png"`, `meta: "UIAtlas.json"` for this game.
+
+## Schema
+
+Extend `packages/document` + commands first; keep export fields stable for AI / runtime.
+See `docs/document-schema.md`.

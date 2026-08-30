@@ -24,6 +24,8 @@ import {
   IDENTITY_MAT,
   getNodeWorldBounds,
   resolveSpriteAssetId,
+  resolveNineSlice,
+  clampNineSliceToTexture,
   normalizeTextShadow,
 } from '@game-ui/document';
 
@@ -57,7 +59,14 @@ export interface CanvasCallbacks {
   getDocument: () => Document;
   /** Committed doc or live transform draft — for selection bounds during drag. */
   getDocumentForRender: () => Document;
-  onAssetDrop?: (assetId: string, artboardPos: { x: number; y: number }) => void;
+  onAssetDrop?: (
+    assetId: string,
+    artboardPos: { x: number; y: number },
+    /** Front-most unlocked sprite under drop point, if any. */
+    hitSpriteId: string | null,
+    /** Front-most frame/rect/group for icon bg, if no sprite hit. */
+    hitIconHostId?: string | null
+  ) => void;
   onCameraChange?: (camera: { x: number; y: number; zoom: number }) => void;
 }
 
@@ -292,12 +301,25 @@ export class EditorStage {
       e.dataTransfer.getData(ASSET_DRAG_MIME) ||
       e.dataTransfer.getData('text/plain') ||
       e.dataTransfer.getData('text');
-    const assetId = decodeAssetDragPayload(raw) ?? (raw?.startsWith('asset_') ? raw : null);
+    const assetId =
+      decodeAssetDragPayload(raw) ?? (raw?.startsWith('asset_') ? raw : null);
     if (!assetId) return;
-    const pos = this.clientToArtboard(e.clientX, e.clientY);
-    if (!pos) return;
-    this.callbacks.onAssetDrop(assetId, pos);
+    this.dropAssetAtClient(assetId, e.clientX, e.clientY);
   };
+
+  /** Drop asset at client coords: replace sprite, else icon on frame, else create. */
+  dropAssetAtClient(assetId: string, clientX: number, clientY: number): boolean {
+    if (!this.callbacks.onAssetDrop) return false;
+    const pos = this.clientToArtboard(clientX, clientY);
+    if (!pos) return false;
+    const doc = this.callbacks.getDocument();
+    const hitSpriteId = this.pickSpriteAt(pos.x, pos.y, doc);
+    const hitIconHostId = hitSpriteId
+      ? null
+      : this.pickIconHostAt(pos.x, pos.y, doc);
+    this.callbacks.onAssetDrop(assetId, pos, hitSpriteId, hitIconHostId);
+    return true;
+  }
 
   private onBlockMiddleDefault = (e: MouseEvent): void => {
     if (e.button === 1) {
@@ -734,6 +756,16 @@ export class EditorStage {
       display.mask = null;
       this.clearNodeVisuals(display);
 
+      // Optional icon / background sprite (frame / rect / group)
+      if (
+        (node.type === 'frame' ||
+          node.type === 'group' ||
+          node.type === 'rect') &&
+        node.iconAssetId
+      ) {
+        this.addIconVisual(display, node, assets);
+      }
+
       // Background fill + stroke (frames / groups / rects)
       if (node.type === 'rect' || ((node.type === 'frame' || node.type === 'group') && (node.fill || node.strokeWidth))) {
         const g = new Graphics();
@@ -775,14 +807,15 @@ export class EditorStage {
         const texW = texture ? texture.width || texture.source?.width || 0 : 0;
         const texH = texture ? texture.height || texture.source?.height || 0 : 0;
         if (texture && texW > 0 && texH > 0) {
-          const slice = node.nineSlice ?? asset?.nineSlice;
-          if (slice && (slice.top || slice.right || slice.bottom || slice.left)) {
+          const slice = resolveNineSlice(node.nineSlice, asset?.nineSlice);
+          if (slice) {
+            const inset = clampNineSliceToTexture(slice, texW, texH);
             const nine = new NineSliceSprite({
               texture,
-              leftWidth: slice.left,
-              topHeight: slice.top,
-              rightWidth: slice.right,
-              bottomHeight: slice.bottom,
+              leftWidth: inset.left,
+              topHeight: inset.top,
+              rightWidth: inset.right,
+              bottomHeight: inset.bottom,
             });
             nine.width = node.transform.width;
             nine.height = node.transform.height;
@@ -864,6 +897,50 @@ export class EditorStage {
       } catch {
         /* destroyed texture refs */
       }
+    }
+  }
+
+  private addIconVisual(
+    display: Container,
+    node: SceneNode,
+    assets: Asset[]
+  ): void {
+    const iconId = node.iconAssetId;
+    if (!iconId) return;
+    const asset = assets.find((a) => a.id === iconId);
+    const texture = asset ? this.textureCache.get(asset.id) : undefined;
+    const texW = texture ? texture.width || texture.source?.width || 0 : 0;
+    const texH = texture ? texture.height || texture.source?.height || 0 : 0;
+    const w = node.transform.width;
+    const h = node.transform.height;
+    if (texture && texW > 0 && texH > 0) {
+      const slice = resolveNineSlice(undefined, asset?.nineSlice);
+      if (slice) {
+        const inset = clampNineSliceToTexture(slice, texW, texH);
+        const nine = new NineSliceSprite({
+          texture,
+          leftWidth: inset.left,
+          topHeight: inset.top,
+          rightWidth: inset.right,
+          bottomHeight: inset.bottom,
+        });
+        nine.width = w;
+        nine.height = h;
+        (nine as NineSliceSprite & { isIconBg?: boolean }).isIconBg = true;
+        display.addChildAt(nine, 0);
+      } else {
+        const sprite = new Sprite(texture);
+        sprite.width = w;
+        sprite.height = h;
+        (sprite as Sprite & { isIconBg?: boolean }).isIconBg = true;
+        display.addChildAt(sprite, 0);
+      }
+    } else {
+      const g = new Graphics();
+      g.rect(0, 0, w, h);
+      g.fill({ color: 0xff6688, alpha: 0.25 });
+      (g as Graphics & { isIconBg?: boolean }).isIconBg = true;
+      display.addChildAt(g, 0);
     }
   }
 
@@ -972,6 +1049,61 @@ export class EditorStage {
       cameraX: this.camera.x,
       cameraY: this.camera.y,
     };
+  }
+
+  /** Front-most unlocked sprite under artboard point. */
+  private pickSpriteAt(
+    artboardX: number,
+    artboardY: number,
+    doc: Document
+  ): string | null {
+    return this.pickNodeAtFiltered(
+      artboardX,
+      artboardY,
+      doc,
+      (n) => n.type === 'sprite'
+    );
+  }
+
+  /** Front-most unlocked frame/rect/group that can take an icon. */
+  private pickIconHostAt(
+    artboardX: number,
+    artboardY: number,
+    doc: Document
+  ): string | null {
+    return this.pickNodeAtFiltered(
+      artboardX,
+      artboardY,
+      doc,
+      (n) => n.type === 'frame' || n.type === 'group' || n.type === 'rect'
+    );
+  }
+
+  private pickNodeAtFiltered(
+    artboardX: number,
+    artboardY: number,
+    doc: Document,
+    pred: (n: SceneNode) => boolean
+  ): string | null {
+    const page = getActivePage(doc);
+    if (!page) return null;
+    const stack: AbsNodeRect[] = [];
+    collectAbsoluteRects(page.root, IDENTITY_MAT, true, stack);
+    for (let i = stack.length - 1; i >= 0; i--) {
+      const r = stack[i]!;
+      if (!r.visible || r.locked) continue;
+      if (
+        artboardX < r.x ||
+        artboardX > r.x + r.w ||
+        artboardY < r.y ||
+        artboardY > r.y + r.h
+      ) {
+        continue;
+      }
+      const found = findNodeInDocument(doc, r.id);
+      if (found && pred(found.node)) return r.id;
+    }
+    return null;
   }
 
   /** Front-most node under artboard point (document space), skipping root. */
@@ -1346,14 +1478,27 @@ function computeVisualKey(node: SceneNode, assets: Asset[]): string {
       String(node.cornerRadius ?? 0),
       node.strokeColor ?? '',
       String(node.strokeWidth ?? 0),
-      String(node.strokeOpacity ?? 1)
+      String(node.strokeOpacity ?? 1),
+      node.iconAssetId ?? '',
+      JSON.stringify(
+        resolveNineSlice(
+          undefined,
+          assets.find((a) => a.id === node.iconAssetId)?.nineSlice
+        ) ?? null
+      )
     );
   }
   if (node.type === 'sprite') {
     const assetId = resolveSpriteAssetId(node);
-    parts.push(assetId, JSON.stringify(node.nineSlice ?? null));
     const asset = assets.find((a) => a.id === assetId);
-    parts.push(asset?.atlasId ?? '');
+    const slice = resolveNineSlice(node.nineSlice, asset?.nineSlice);
+    parts.push(
+      assetId,
+      node.activeState ?? 'normal',
+      JSON.stringify(node.stateAssets ?? null),
+      JSON.stringify(slice ?? null),
+      asset?.atlasId ?? ''
+    );
   }
   if (node.type === 'text') {
     const tn = node as TextNode;

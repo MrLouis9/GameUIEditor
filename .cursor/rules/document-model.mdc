@@ -1,0 +1,25 @@
+---
+description: Document schema and command patterns for GameUIEditer
+globs: packages/document/**/*.{ts,tsx},apps/editor/src/store/**/*.{ts,tsx}
+alwaysApply: false
+---
+
+# Document Model
+
+## Node types
+
+`frame` | `group` | `sprite` | `rect` | `text` (text optional until P1+)
+
+Every node: `id`, `name`, `type`, `visible`, `locked`, `transform` (`x,y,w,h,rotation,opacity`), optional `children`.
+
+## Commands
+
+Implement edits as commands with `execute` / `undo` (or reverse patch). History stack lives in document package or editor store wrapping it.
+
+## Serialization
+
+- Versioned JSON: `{ schemaVersion, document }`
+- Assets referenced by id; binary/dataURL stored in asset library section
+- AI export must be stable field names (snake or camel — pick camelCase and keep consistent)
+---
+

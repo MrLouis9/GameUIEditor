@@ -25,6 +25,9 @@ import {
   suggestComponentKey,
   findInteractionForNode,
   lintNodeIssuesForNode,
+  resolveSpriteAssetId,
+  ASSET_DRAG_MIME,
+  decodeAssetDragPayload,
   type Document,
   type NodeRole,
   type NodeUiState,
@@ -33,6 +36,9 @@ import {
   type Constraints,
   type TextShadow,
   type SceneNode,
+  type Asset,
+  type Atlas,
+  type StateAssets,
   normalizeTextShadow,
 } from '@game-ui/document';
 import { getTransformDraft, useEditorStore } from '../store/editorStore';
@@ -69,6 +75,8 @@ export function PropertiesPanel() {
   const setVisible = useEditorStore((s) => s.setVisible);
   const resetSpriteGeometry = useEditorStore((s) => s.resetSpriteGeometry);
   const updateSpriteStateAssets = useEditorStore((s) => s.updateSpriteStateAssets);
+  const setSpriteAsset = useEditorStore((s) => s.setSpriteAsset);
+  const setNodeIconAsset = useEditorStore((s) => s.setNodeIconAsset);
   const setNodeActiveState = useEditorStore((s) => s.setNodeActiveState);
 
   const [aspectLock, setAspectLock] = useState(false);
@@ -284,6 +292,30 @@ export function PropertiesPanel() {
               onChange={(patch) => setConstraints(node.id, patch)}
             />
           )}
+
+          {!multi && node.type === 'sprite' && (
+            <SpriteAssetSection
+              locked={node.locked}
+              assetId={resolveSpriteAssetId(node)}
+              assets={document.assets}
+              atlases={document.atlases}
+              onPick={(assetId) => setSpriteAsset(node.id, assetId)}
+            />
+          )}
+
+          {!multi &&
+            (node.type === 'frame' ||
+              node.type === 'group' ||
+              node.type === 'rect') && (
+              <IconAssetSection
+                locked={node.locked}
+                iconAssetId={node.iconAssetId}
+                assets={document.assets}
+                atlases={document.atlases}
+                onPick={(assetId) => setNodeIconAsset(node.id, assetId)}
+                onClear={() => setNodeIconAsset(node.id, undefined)}
+              />
+            )}
 
           {!multi && (
             <SemanticsSection
@@ -1148,10 +1180,16 @@ export function PropertiesPanel() {
 
         {!multi &&
           node.type === 'sprite' &&
-          (node.role === 'toggle' || node.role === 'tab') && (
+          (node.role === 'toggle' ||
+            node.role === 'tab' ||
+            (node.role === 'button' &&
+              (node.states ?? []).some(
+                (s) => s === 'pressed' || s === 'hover' || s === 'disabled'
+              ))) && (
             <StateArtSection
               locked={node.locked}
               role={node.role}
+              states={node.states ?? ['normal']}
               activeState={node.activeState ?? 'normal'}
               assetId={node.assetId}
               stateAssets={node.stateAssets}
@@ -1955,6 +1993,7 @@ function TextShadowFields({
 function StateArtSection({
   locked,
   role,
+  states,
   activeState,
   assetId,
   stateAssets,
@@ -1963,72 +2002,612 @@ function StateArtSection({
   onSetActive,
 }: {
   locked: boolean;
-  role: 'toggle' | 'tab';
+  role: 'toggle' | 'tab' | 'button';
+  states: NodeUiState[];
   activeState: string;
   assetId: string;
   stateAssets?: Partial<Record<string, string>>;
   assets: { id: string; name: string; dataUrl: string }[];
-  onPatchAssets: (patch: { normal?: string; selected?: string }) => void;
-  onSetActive: (s: 'normal' | 'selected') => void;
+  onPatchAssets: (patch: StateAssets) => void;
+  onSetActive: (s: NodeUiState) => void;
 }) {
-  const normalId = stateAssets?.normal || assetId;
-  const selectedId = stateAssets?.selected || '';
-  const options = [
-    { value: '', label: '（未指定）' },
-    ...assets.map((a) => ({ value: a.id, label: a.name })),
-  ];
-  const offLabel = role === 'toggle' ? '关闭图' : '未选中图';
-  const onLabel = role === 'toggle' ? '打开图' : '选中图';
-  const isOn = activeState === 'selected';
+  const slots: Array<{ key: NodeUiState; label: string; required?: boolean }> =
+    role === 'button'
+      ? [
+          { key: 'normal', label: '常态图', required: true },
+          ...(['pressed', 'hover', 'disabled', 'selected'] as NodeUiState[])
+            .filter((s) => states.includes(s))
+            .map((s) => ({
+              key: s,
+              label:
+                s === 'pressed'
+                  ? '按下图'
+                  : s === 'hover'
+                    ? '悬停图'
+                    : s === 'disabled'
+                      ? '禁用图'
+                      : '选中图',
+            })),
+        ]
+      : [
+          {
+            key: 'normal',
+            label: role === 'toggle' ? '关闭图' : '未选中图',
+            required: true,
+          },
+          {
+            key: 'selected',
+            label: role === 'toggle' ? '打开图' : '选中图',
+          },
+        ];
+
+  const title =
+    role === 'button'
+      ? '按钮 · 状态贴图'
+      : role === 'toggle'
+        ? '开关 · 状态贴图'
+        : '页签 · 状态贴图';
+
+  const hint =
+    role === 'button'
+      ? '为勾选的参与状态指定切图；画布按 activeState 预览。可从资源库拖到下方槽位替换。'
+      : role === 'toggle'
+        ? '指定打开/关闭两张图；导出 stateAssets.normal / selected。可从资源库拖入替换。'
+        : '同组 role=tab 互斥选中；导出 stateAssets + activeState。可从资源库拖入替换。';
+
+  const previewStates = slots.map((s) => s.key);
+  const activeIdx = Math.max(
+    0,
+    previewStates.indexOf(activeState as NodeUiState)
+  );
+  const nextPreview =
+    previewStates[(activeIdx + 1) % previewStates.length] ?? 'normal';
 
   return (
     <div className="space-y-2 border-t border-slate-800 px-3 py-2">
       <div className="text-[10px] font-medium uppercase tracking-wider text-slate-500">
-        {role === 'toggle' ? '开关 · 状态贴图' : '页签 · 状态贴图'}
+        {title}
       </div>
-      <p className="text-[10px] leading-snug text-slate-600">
-        {role === 'toggle'
-          ? '指定打开/关闭两张图；导出 stateAssets.normal / selected，用 activeState 切换。'
-          : '同组多个 role=tab 的精灵互斥选中；导出 stateAssets + activeState。'}
-      </p>
-      <div className="flex items-center gap-2">
-        <AssetThumb assets={assets} id={normalId} />
-        <div className="min-w-0 flex-1">
-          <SelectField
-            label={offLabel}
-            value={normalId}
-            disabled={locked || assets.length === 0}
-            onChange={(v) => onPatchAssets({ normal: v || undefined })}
-            options={options.filter((o) => o.value !== '')}
+      <p className="text-[10px] leading-snug text-slate-600">{hint}</p>
+      {slots.map((slot) => {
+        const value =
+          (stateAssets?.[slot.key] as string | undefined) ||
+          (slot.key === 'normal' ? assetId : '');
+        return (
+          <StateArtSlot
+            key={slot.key}
+            locked={locked}
+            label={slot.label}
+            required={!!slot.required}
+            value={value}
+            assets={assets}
+            highlighted={activeState === slot.key}
+            onChange={(id) =>
+              onPatchAssets(
+                slot.key === 'normal'
+                  ? { normal: id || undefined }
+                  : ({ [slot.key]: id || undefined } as StateAssets)
+              )
+            }
           />
-        </div>
-      </div>
-      <div className="flex items-center gap-2">
-        <AssetThumb assets={assets} id={selectedId} />
-        <div className="min-w-0 flex-1">
-          <SelectField
-            label={onLabel}
-            value={selectedId}
-            disabled={locked || assets.length === 0}
-            onChange={(v) => onPatchAssets({ selected: v || undefined })}
-            options={options}
-          />
-        </div>
-      </div>
+        );
+      })}
       <button
         type="button"
-        disabled={locked}
-        onClick={() => onSetActive(isOn ? 'normal' : 'selected')}
+        disabled={locked || previewStates.length < 2}
+        onClick={() => onSetActive(nextPreview)}
         className="w-full rounded-md border border-slate-700 bg-slate-800 px-2 py-1.5 text-[11px] text-slate-200 hover:bg-slate-700 disabled:opacity-40"
       >
-        {role === 'toggle'
-          ? isOn
-            ? '预览：当前为打开 → 点此切到关闭'
-            : '预览：当前为关闭 → 点此切到打开'
-          : isOn
-            ? '预览：当前选中 → 点此取消选中'
-            : '预览：设为选中（同组其他页签取消）'}
+        {role === 'button'
+          ? `预览：${stateLabel(activeState as NodeUiState)} → 切到 ${stateLabel(nextPreview)}`
+          : role === 'toggle'
+            ? activeState === 'selected'
+              ? '预览：当前为打开 → 点此切到关闭'
+              : '预览：当前为关闭 → 点此切到打开'
+            : activeState === 'selected'
+              ? '预览：当前选中 → 点此取消选中'
+              : '预览：设为选中（同组其他页签取消）'}
       </button>
+    </div>
+  );
+}
+
+function stateLabel(s: NodeUiState | string): string {
+  switch (s) {
+    case 'normal':
+      return '常态';
+    case 'pressed':
+      return '按下';
+    case 'hover':
+      return '悬停';
+    case 'disabled':
+      return '禁用';
+    case 'selected':
+      return '选中';
+    default:
+      return s;
+  }
+}
+
+function StateArtSlot({
+  locked,
+  label,
+  required,
+  value,
+  assets,
+  highlighted,
+  onChange,
+}: {
+  locked: boolean;
+  label: string;
+  required?: boolean;
+  value: string;
+  assets: { id: string; name: string; dataUrl: string }[];
+  highlighted?: boolean;
+  onChange: (assetId: string) => void;
+}) {
+  const [dragOver, setDragOver] = useState(false);
+  const options = [
+    ...(required ? [] : [{ value: '', label: '（未指定）' }]),
+    ...assets.map((a) => ({ value: a.id, label: a.name })),
+  ];
+
+  const acceptDrop = (e: React.DragEvent) => {
+    if (locked) return false;
+    const types = e.dataTransfer.types;
+    return (
+      types.includes(ASSET_DRAG_MIME) ||
+      types.includes('text/plain') ||
+      types.includes('text')
+    );
+  };
+
+  const onDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOver(false);
+    if (locked) return;
+    const raw =
+      e.dataTransfer.getData(ASSET_DRAG_MIME) ||
+      e.dataTransfer.getData('text/plain') ||
+      e.dataTransfer.getData('text');
+    const id =
+      decodeAssetDragPayload(raw) ?? (raw?.startsWith('asset_') ? raw : null);
+    if (!id || !assets.some((a) => a.id === id)) return;
+    onChange(id);
+    const name = assets.find((a) => a.id === id)?.name ?? id;
+    toast(`已设置${label}：${name}`, 'success');
+  };
+
+  return (
+    <div
+      className={`flex items-center gap-2 rounded-md border p-1.5 ${
+        dragOver
+          ? 'border-sky-500 bg-sky-950/30 ring-1 ring-sky-500/40'
+          : highlighted
+            ? 'border-emerald-700/60 bg-emerald-950/20'
+            : 'border-transparent'
+      }`}
+      onDragOver={(e) => {
+        if (!acceptDrop(e)) return;
+        e.preventDefault();
+        e.stopPropagation();
+        e.dataTransfer.dropEffect = 'copy';
+        setDragOver(true);
+      }}
+      onDragLeave={(e) => {
+        if (e.currentTarget === e.target) setDragOver(false);
+      }}
+      onDrop={onDrop}
+    >
+      <AssetThumb assets={assets} id={value} />
+      <div className="min-w-0 flex-1">
+        <SelectField
+          label={label}
+          value={value}
+          disabled={locked || assets.length === 0}
+          onChange={(v) => onChange(v)}
+          options={options}
+        />
+        <div className="mt-0.5 px-0.5 text-[9px] text-slate-600">
+          可从资源库拖入
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function IconAssetSection({
+  locked,
+  iconAssetId,
+  assets,
+  atlases,
+  onPick,
+  onClear,
+}: {
+  locked: boolean;
+  iconAssetId?: string;
+  assets: Asset[];
+  atlases: Atlas[];
+  onPick: (assetId: string) => void;
+  onClear: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [filter, setFilter] = useState('');
+  const [dragOver, setDragOver] = useState(false);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const asset = iconAssetId
+    ? assets.find((a) => a.id === iconAssetId)
+    : undefined;
+  const atlasName =
+    atlases.find((a) => a.id === asset?.atlasId)?.name ?? asset?.atlasId ?? '';
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (!panelRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [open]);
+
+  const acceptAssetDrop = (e: React.DragEvent) => {
+    if (locked) return false;
+    const types = e.dataTransfer.types;
+    return (
+      types.includes(ASSET_DRAG_MIME) ||
+      types.includes('text/plain') ||
+      types.includes('text')
+    );
+  };
+
+  const onDropAsset = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOver(false);
+    if (locked) return;
+    const raw =
+      e.dataTransfer.getData(ASSET_DRAG_MIME) ||
+      e.dataTransfer.getData('text/plain') ||
+      e.dataTransfer.getData('text');
+    const id =
+      decodeAssetDragPayload(raw) ?? (raw?.startsWith('asset_') ? raw : null);
+    if (!id || !assets.some((a) => a.id === id)) return;
+    onPick(id);
+    const name = assets.find((a) => a.id === id)?.name ?? id;
+    toast(`已设置图标精灵：${name}`, 'success');
+  };
+
+  const q = filter.trim().toLowerCase();
+  const filtered = q
+    ? assets.filter(
+        (a) =>
+          a.name.toLowerCase().includes(q) || a.id.toLowerCase().includes(q)
+      )
+    : assets;
+
+  return (
+    <div ref={panelRef} className="relative space-y-2">
+      <div className="text-[10px] font-medium uppercase tracking-wider text-slate-500">
+        图标 / 背景精灵
+      </div>
+      <p className="text-[10px] leading-snug text-slate-600">
+        为 Frame / 矩形添加切图作背景或图标（九宫随资源）。可从资源库拖入。角色为
+        none 时会自动设为 icon。
+      </p>
+      <div
+        className={`flex items-stretch gap-2 rounded-md border bg-slate-950/60 p-2 ${
+          dragOver
+            ? 'border-sky-500 ring-1 ring-sky-500/40'
+            : 'border-slate-800'
+        }`}
+        onDragOver={(e) => {
+          if (!acceptAssetDrop(e)) return;
+          e.preventDefault();
+          e.stopPropagation();
+          e.dataTransfer.dropEffect = 'copy';
+          setDragOver(true);
+        }}
+        onDragLeave={(e) => {
+          if (e.currentTarget === e.target) setDragOver(false);
+        }}
+        onDrop={onDropAsset}
+      >
+        <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded border border-slate-700 bg-[repeating-conic-gradient(#1e293b_0%_25%,#0f172a_0%_50%)_0_0/8px_8px]">
+          {asset?.dataUrl ? (
+            <img
+              src={asset.dataUrl}
+              alt=""
+              className="max-h-full max-w-full object-contain"
+            />
+          ) : (
+            <span className="px-1 text-center text-[9px] text-slate-600">
+              无图标
+            </span>
+          )}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-[12px] text-slate-100">
+            {asset?.name ?? '（未设置）'}
+          </div>
+          <div className="mt-0.5 truncate text-[10px] text-slate-500">
+            {asset
+              ? `${asset.width}×${asset.height}${atlasName ? ` · ${atlasName}` : ''}`
+              : '从资源库拖入或点下方选择'}
+          </div>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            <button
+              type="button"
+              disabled={locked || assets.length === 0}
+              onClick={() => setOpen((v) => !v)}
+              className="inline-flex items-center gap-1 rounded border border-slate-700 bg-slate-800 px-2 py-1 text-[10px] text-sky-300 hover:bg-slate-700 disabled:opacity-40"
+            >
+              {asset ? '更换' : '添加图标'}
+              <ChevronDown size={11} />
+            </button>
+            {asset && (
+              <button
+                type="button"
+                disabled={locked}
+                onClick={() => {
+                  onClear();
+                  toast('已清除图标精灵', 'info');
+                }}
+                className="rounded border border-slate-700 px-2 py-1 text-[10px] text-slate-400 hover:bg-slate-800 disabled:opacity-40"
+              >
+                清除
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {open && (
+        <div className="absolute left-0 right-0 z-30 mt-1 max-h-56 overflow-hidden rounded-md border border-slate-700 bg-slate-900 shadow-xl">
+          <div className="border-b border-slate-800 p-1.5">
+            <input
+              autoFocus
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              placeholder="搜索切图名称…"
+              className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1 text-[11px] text-slate-200 outline-none focus:border-sky-500/50"
+            />
+          </div>
+          <div className="max-h-44 overflow-auto p-1.5">
+            {filtered.length === 0 ? (
+              <div className="px-2 py-3 text-center text-[10px] text-slate-500">
+                无匹配切图
+              </div>
+            ) : (
+              <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-4">
+                {filtered.map((a) => {
+                  const selected = a.id === iconAssetId;
+                  return (
+                    <button
+                      key={a.id}
+                      type="button"
+                      title={a.name}
+                      disabled={locked}
+                      onClick={() => {
+                        onPick(a.id);
+                        setOpen(false);
+                        setFilter('');
+                        toast(`已设置图标精灵：${a.name}`, 'success');
+                      }}
+                      className={`flex flex-col items-center gap-1 rounded border p-1.5 text-left hover:bg-slate-800 ${
+                        selected
+                          ? 'border-sky-500/70 bg-sky-950/40'
+                          : 'border-slate-800 bg-slate-950/50'
+                      }`}
+                    >
+                      <div className="flex h-12 w-full items-center justify-center overflow-hidden rounded bg-[repeating-conic-gradient(#1e293b_0%_25%,#0f172a_0%_50%)_0_0/6px_6px]">
+                        {a.dataUrl ? (
+                          <img
+                            src={a.dataUrl}
+                            alt=""
+                            className="max-h-full max-w-full object-contain"
+                          />
+                        ) : (
+                          <span className="text-[8px] text-rose-400/70">无图</span>
+                        )}
+                      </div>
+                      <span className="w-full truncate text-center text-[9px] text-slate-400">
+                        {a.name}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SpriteAssetSection({
+  locked,
+  assetId,
+  assets,
+  atlases,
+  onPick,
+}: {
+  locked: boolean;
+  assetId: string;
+  assets: Asset[];
+  atlases: Atlas[];
+  onPick: (assetId: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [filter, setFilter] = useState('');
+  const [dragOver, setDragOver] = useState(false);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const asset = assets.find((a) => a.id === assetId);
+  const atlasName =
+    atlases.find((a) => a.id === asset?.atlasId)?.name ?? asset?.atlasId ?? '';
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (!panelRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [open]);
+
+  const acceptAssetDrop = (e: React.DragEvent) => {
+    if (locked) return false;
+    const types = e.dataTransfer.types;
+    return (
+      types.includes(ASSET_DRAG_MIME) ||
+      types.includes('text/plain') ||
+      types.includes('text')
+    );
+  };
+
+  const onDropAsset = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOver(false);
+    if (locked) return;
+    const raw =
+      e.dataTransfer.getData(ASSET_DRAG_MIME) ||
+      e.dataTransfer.getData('text/plain') ||
+      e.dataTransfer.getData('text');
+    const id =
+      decodeAssetDragPayload(raw) ?? (raw?.startsWith('asset_') ? raw : null);
+    if (!id || !assets.some((a) => a.id === id)) return;
+    onPick(id);
+    const name = assets.find((a) => a.id === id)?.name ?? id;
+    toast(`已替换精灵：${name}`, 'success');
+  };
+
+  const q = filter.trim().toLowerCase();
+  const filtered = q
+    ? assets.filter(
+        (a) =>
+          a.name.toLowerCase().includes(q) || a.id.toLowerCase().includes(q)
+      )
+    : assets;
+
+  return (
+    <div ref={panelRef} className="relative space-y-2">
+      <div className="text-[10px] font-medium uppercase tracking-wider text-slate-500">
+        关联精灵
+      </div>
+      <div
+        className={`flex items-stretch gap-2 rounded-md border bg-slate-950/60 p-2 ${
+          dragOver
+            ? 'border-sky-500 ring-1 ring-sky-500/40'
+            : 'border-slate-800'
+        }`}
+        onDragOver={(e) => {
+          if (!acceptAssetDrop(e)) return;
+          e.preventDefault();
+          e.stopPropagation();
+          e.dataTransfer.dropEffect = 'copy';
+          setDragOver(true);
+        }}
+        onDragLeave={(e) => {
+          if (e.currentTarget === e.target) setDragOver(false);
+        }}
+        onDrop={onDropAsset}
+      >
+        <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded border border-slate-700 bg-[repeating-conic-gradient(#1e293b_0%_25%,#0f172a_0%_50%)_0_0/8px_8px]">
+          {asset?.dataUrl ? (
+            <img
+              src={asset.dataUrl}
+              alt=""
+              className="max-h-full max-w-full object-contain"
+            />
+          ) : (
+            <span className="px-1 text-center text-[9px] text-rose-400/80">
+              {asset ? '无图' : '未关联'}
+            </span>
+          )}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-[12px] text-slate-100">
+            {asset?.name ?? '（无资源）'}
+          </div>
+          <div className="mt-0.5 truncate text-[10px] text-slate-500">
+            {asset
+              ? `${asset.width}×${asset.height}${atlasName ? ` · ${atlasName}` : ''}`
+              : assetId || '—'}
+          </div>
+          <button
+            type="button"
+            disabled={locked || assets.length === 0}
+            onClick={() => setOpen((v) => !v)}
+            className="mt-1.5 inline-flex items-center gap-1 rounded border border-slate-700 bg-slate-800 px-2 py-1 text-[10px] text-sky-300 hover:bg-slate-700 disabled:opacity-40"
+          >
+            更换精灵 / 可从资源库拖入
+            <ChevronDown size={11} />
+          </button>
+        </div>
+      </div>
+
+      {open && (
+        <div className="absolute left-0 right-0 z-30 mt-1 max-h-56 overflow-hidden rounded-md border border-slate-700 bg-slate-900 shadow-xl">
+          <div className="border-b border-slate-800 p-1.5">
+            <input
+              autoFocus
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              placeholder="搜索切图名称…"
+              className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1 text-[11px] text-slate-200 outline-none focus:border-sky-500/50"
+            />
+          </div>
+          <div className="max-h-44 overflow-auto p-1.5">
+            {filtered.length === 0 ? (
+              <div className="px-2 py-3 text-center text-[10px] text-slate-500">
+                无匹配切图
+              </div>
+            ) : (
+              <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-4">
+                {filtered.map((a) => {
+                  const selected = a.id === assetId;
+                  return (
+                    <button
+                      key={a.id}
+                      type="button"
+                      title={a.name}
+                      disabled={locked}
+                      onClick={() => {
+                        onPick(a.id);
+                        setOpen(false);
+                        setFilter('');
+                        toast(`已更换精灵：${a.name}`, 'success');
+                      }}
+                      className={`flex flex-col items-center gap-1 rounded border p-1.5 text-left hover:bg-slate-800 ${
+                        selected
+                          ? 'border-sky-500/70 bg-sky-950/40'
+                          : 'border-slate-800 bg-slate-950/50'
+                      }`}
+                    >
+                      <div className="flex h-12 w-full items-center justify-center overflow-hidden rounded bg-[repeating-conic-gradient(#1e293b_0%_25%,#0f172a_0%_50%)_0_0/6px_6px]">
+                        {a.dataUrl ? (
+                          <img
+                            src={a.dataUrl}
+                            alt=""
+                            className="max-h-full max-w-full object-contain"
+                          />
+                        ) : (
+                          <span className="text-[8px] text-rose-400/70">无图</span>
+                        )}
+                      </div>
+                      <span className="w-full truncate text-center text-[9px] text-slate-400">
+                        {a.name}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -103,6 +103,9 @@ export {
   resolveSpriteAssetId,
   mergeStateAssets,
   normalizeTextShadow,
+  isActiveNineSlice,
+  resolveNineSlice,
+  clampNineSliceToTexture,
 } from './visualState';
 
 export {
